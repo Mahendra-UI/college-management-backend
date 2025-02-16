@@ -50,24 +50,24 @@ router.put('/updatenotification/:notification_id', async (req, res) => {
     }
 });
 
-/**
- * @swagger
- * /api/getnotifications:
- *   get:
- *     summary: Get all notifications
- */
-router.get('/getnotifications', async (req, res) => {
-    try {
-        const result = await pool.query(
-            `SELECT notification_id, title, title_description, created_at, updated_at FROM notifications ORDER BY created_at DESC`
-        );
+// /**
+//  * @swagger
+//  * /api/getnotifications:
+//  *   get:
+//  *     summary: Get all notifications
+//  */
+// router.get('/getnotifications', async (req, res) => {
+//     try {
+//         const result = await pool.query(
+//             `SELECT notification_id, title, title_description, created_at, updated_at FROM notifications ORDER BY created_at DESC`
+//         );
 
-        res.status(200).json({ success: true, notifications: result.rows });
-    } catch (error) {
-        console.error("❌ Error fetching notifications:", error);
-        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
-    }
-});
+//         res.status(200).json({ success: true, notifications: result.rows });
+//     } catch (error) {
+//         console.error("❌ Error fetching notifications:", error);
+//         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+//     }
+// });
 
 /**
  * @swagger
@@ -142,5 +142,101 @@ router.get('/getnotification/:notification_id', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
+
+
+/**
+ * @swagger
+ * /api/deletenotification/{notification_id}:
+ *   delete:
+ *     summary: Delete a notification
+ *     description: Deletes a notification based on `notification_id`.
+ *     parameters:
+ *       - in: path
+ *         name: notification_id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The unique notification ID to be deleted.
+ *     responses:
+ *       200:
+ *         description: Successfully deleted notification.
+ *       400:
+ *         description: Invalid request, missing notification_id.
+ *       404:
+ *         description: Notification not found.
+ *       500:
+ *         description: Internal server error.
+ */
+router.delete('/deletenotification/:notification_id', async (req, res) => {
+    try {
+        const { notification_id } = req.params;
+
+        if (!notification_id) {
+            return res.status(400).json({ success: false, message: "Missing notification_id parameter" });
+        }
+
+        const result = await pool.query(`SELECT delete_notification($1) AS message`, [notification_id]);
+
+        if (result.rows[0].message === 'Notification not found') {
+            return res.status(404).json({ success: false, message: "Notification not found" });
+        }
+
+        res.status(200).json({ success: true, message: "Notification deleted successfully" });
+
+    } catch (error) {
+        console.error("❌ Error deleting notification:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+
+
+// /**
+//  * @swagger
+//  * /api/deletenotification/{notification_id}:
+//  *   delete:
+//  *     summary: Delete a notification
+//  *     description: Deletes a notification based on `notification_id`.
+//  *     parameters:
+//  *       - in: path
+//  *         name: notification_id
+//  *         required: true
+//  *         schema:
+//  *           type: integer
+//  *         description: The unique notification ID to be deleted.
+//  *     responses:
+//  *       200:
+//  *         description: Successfully deleted notification.
+//  *       400:
+//  *         description: Invalid request, missing notification_id.
+//  *       404:
+//  *         description: Notification not found.
+//  *       500:
+//  *         description: Internal server error.
+//  */
+// router.delete('/deletenotification/:notification_id', async (req, res) => {
+//     try {
+//         const { notification_id } = req.params;
+
+//         if (!notification_id) {
+//             return res.status(400).json({ success: false, message: "Missing notification_id parameter" });
+//         }
+
+//         const result = await pool.query(`DELETE FROM notifications WHERE notification_id = $1 RETURNING *`, [notification_id]);
+
+//         if (result.rowCount === 0) {
+//             return res.status(404).json({ success: false, message: "Notification not found" });
+//         }
+
+//         res.status(200).json({ success: true, message: "Notification deleted successfully" });
+
+//     } catch (error) {
+//         console.error("❌ Error deleting notification:", error);
+//         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+//     }
+// });
+
 
 module.exports = router;

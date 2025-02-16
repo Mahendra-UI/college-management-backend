@@ -554,5 +554,51 @@ router.get('/getsubjects/user/:username/:courseId/:semesterId', async (req, res)
 });
 
 
+/**
+ * @swagger
+ * /api/deletesubject/{subject_id}:
+ *   delete:
+ *     summary: Delete a subject
+ *     description: Deletes a subject based on `subject_id`.
+ *     parameters:
+ *       - in: path
+ *         name: subject_id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The unique subject ID to be deleted.
+ *     responses:
+ *       200:
+ *         description: Successfully deleted subject.
+ *       400:
+ *         description: Invalid request, missing subject_id.
+ *       404:
+ *         description: Subject not found.
+ *       500:
+ *         description: Internal server error.
+ */
+router.delete('/deletesubject/:subject_id', async (req, res) => {
+    try {
+        const { subject_id } = req.params;
+
+        if (!subject_id) {
+            return res.status(400).json({ success: false, message: "Missing subject_id parameter" });
+        }
+
+        const result = await pool.query(`SELECT delete_subject($1) AS message`, [subject_id]);
+
+        if (result.rows[0].message === 'Subject not found') {
+            return res.status(404).json({ success: false, message: "Subject not found" });
+        }
+
+        res.status(200).json({ success: true, message: "Subject deleted successfully" });
+
+    } catch (error) {
+        console.error("❌ Error deleting subject:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
 
 module.exports = router;

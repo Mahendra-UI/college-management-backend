@@ -9,57 +9,65 @@ const router = express.Router();
  *     summary: Insert a new student and create login credentials
  *     description: Adds a new student record to the database and updates the login table if username is unique.
  */
+
 router.post('/savestudents', async (req, res) => {
-  try {
-      await pool.query('BEGIN'); // ✅ Start transaction
+    try {
+        await pool.query('BEGIN'); // ✅ Start transaction
 
-      const { 
-          full_name, father_name, student_gender, student_date_of_birth,
-          mobile_no, email_id, course_name, course_year, 
-          enrollment_year, student_address, student_status
-      } = req.body;
+        const { 
+            full_name, father_name, student_gender, student_date_of_birth,
+            mobile_no, email_id, course_name, course_year, 
+            enrollment_year, student_address, student_status
+        } = req.body;
 
-      let result;
-      let attempts = 0;
-      let max_attempts = 5;
-      
-      while (attempts < max_attempts) {
-          try {
-              result = await pool.query(
-                  `SELECT public.insert_student($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) AS student_id`,
-                  [
-                      full_name, father_name, student_gender, student_date_of_birth,
-                      mobile_no, email_id, course_name, course_year, 
-                      enrollment_year, student_address, student_status
-                  ]
-              );
-              break;
-          } catch (error) {
-              if (error.message.includes("duplicate key value violates unique constraint \"login_pkey\"")) {
-                  console.log(`Retrying due to duplicate username... Attempt ${attempts + 1}`);
-                  attempts++;
-                  continue;
-              }
-              throw error;
-          }
-      }
+        // ✅ Convert course_id to Integer
+        const courseId = parseInt(req.body.course_id, 10);
+        if (isNaN(courseId)) {
+            return res.status(400).json({ success: false, message: "Invalid course_id. Must be a number." });
+        }
 
-      if (attempts >= max_attempts) {
-          throw new Error("Failed to insert student after multiple attempts due to duplicate usernames.");
-      }
+        let result;
+        let attempts = 0;
+        let max_attempts = 5;
+        
+        while (attempts < max_attempts) {
+            try {
+                result = await pool.query(
+                    `SELECT public.insert_student($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) AS student_id`,
+                    [
+                        full_name, father_name, student_gender, student_date_of_birth,
+                        mobile_no, email_id, course_name, course_year, 
+                        enrollment_year, student_address, student_status
+                    ]
+                );
+                break;
+            } catch (error) {
+                if (error.message.includes("duplicate key value violates unique constraint \"login_pkey\"")) {
+                    console.log(`Retrying due to duplicate username... Attempt ${attempts + 1}`);
+                    attempts++;
+                    continue;
+                }
+                throw error;
+            }
+        }
 
-      await pool.query('COMMIT'); // ✅ Commit Transaction
+        if (attempts >= max_attempts) {
+            throw new Error("Failed to insert student after multiple attempts due to duplicate usernames.");
+        }
 
-      res.status(201).json({
-          success: true,
-          message: 'Student inserted successfully',
-          student_id: result.rows[0].student_id
-      });
-  } catch (error) {
-      await pool.query('ROLLBACK'); // ✅ Rollback Transaction on error
-      res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
-  }
+        await pool.query('COMMIT'); // ✅ Commit Transaction
+
+        res.status(201).json({
+            success: true,
+            message: 'Student inserted successfully',
+            student_id: result.rows[0].student_id
+        });
+    } catch (error) {
+        await pool.query('ROLLBACK'); // ✅ Rollback Transaction on error
+        res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
+    }
 });
+
 
 /**
  * @swagger

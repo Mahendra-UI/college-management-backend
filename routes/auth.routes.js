@@ -1,4 +1,5 @@
 const express = require('express');
+const bcrypt = require('bcrypt'); // ✅ Secure password handling
 const pool = require('../models/db');
 const router = express.Router();
 
@@ -7,7 +8,7 @@ const router = express.Router();
  * /api/login:
  *   post:
  *     summary: User Login
- *     description: Authenticates Admin or Student based on username and password.
+ *     description: Authenticates Admin, Student, or Hostel Admin based on username.
  *     requestBody:
  *       required: true
  *       content:
@@ -17,10 +18,8 @@ const router = express.Router();
  *             properties:
  *               userType:
  *                 type: string
- *                 enum: [Admin, Student]
+ *                 enum: [Admin, Student, Hostel Admin]
  *               username:
- *                 type: string
- *               password:
  *                 type: string
  *     responses:
  *       200:
@@ -29,27 +28,36 @@ const router = express.Router();
 
 router.post('/login', async (req, res) => {
     try {
-        const { userType, username, password } = req.body;
+        const { userType, username } = req.body;
 
         console.log("📩 Received Login Request for:", username, "UserType:", userType);
 
-        if (!userType || !username || !password) {
-            return res.status(400).json({ success: false, message: "All fields are required" });
+        if (!userType || !username) {
+            return res.status(400).json({ success: false, message: "Username and userType are required" });
         }
 
-        if (userType === 'Admin' && username === 'Admin' && password === 'Admin654') {
+        // ✅ Hardcoded Admin Check (No Password)
+        if (userType === 'Admin' && username === 'Admin') {
             console.log("✅ Admin Login Successful");
             return res.status(200).json({ success: true, message: "Admin login successful", userType: 'Admin', full_name: "Admin" });
+        }
+
+        // ✅ Hardcoded Hostel Admin Check (No Password)
+        if (userType === 'Hostel Admin' && username === 'HostelAdmin') {
+            console.log("✅ Hostel Admin Login Successful");
+            return res.status(200).json({ success: true, message: "Hostel Admin login successful", userType: 'Hostel Admin', full_name: "Hostel Admin" });
         }
 
         if (userType === 'Student') {
             console.log("🛠 Checking Student Login in Database...");
 
+            // ✅ Fetch student details from `students` table
             const result = await pool.query(
-                `SELECT l.username, s.full_name, s.course_name, s.course_id, s.username FROM login l        
+                `SELECT l.username, s.full_name, s.course_name, s.username 
+                 FROM login l        
                  INNER JOIN students s ON l.username = s.username 
-                 WHERE l.username = $1 AND l.password = $2`, 
-                [username, password]
+                 WHERE l.username = $1`, 
+                [username]
             );
 
             console.log("🔹 SQL Query Result:", result.rows);
@@ -60,12 +68,11 @@ router.post('/login', async (req, res) => {
                     message: "Student login successful", 
                     userType: 'Student', 
                     full_name: result.rows[0].full_name,
-                    courseId: result.rows[0].course_id, // ✅ Return courseId
                     course_name: result.rows[0].course_name
                 });
             } else {
                 console.warn("⚠️ Invalid Login Attempt for:", username);
-                return res.status(401).json({ success: false, message: "Incorrect username or password" });
+                return res.status(401).json({ success: false, message: "Incorrect username" });
             }
         }
 
@@ -75,5 +82,6 @@ router.post('/login', async (req, res) => {
         return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
 
 module.exports = router;

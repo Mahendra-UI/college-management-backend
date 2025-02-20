@@ -36,10 +36,9 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ success: false, message: "All fields are required" });
         }
 
-        // ✅ Fetch user details with hashed password
+        // ✅ Fetch user details
         const result = await pool.query(
-            `SELECT username, password, full_name, user_type, course_name 
-             FROM login WHERE username = $1 AND user_type = $2`,
+            "SELECT username, password, full_name, user_type FROM login WHERE username = $1 AND user_type = $2",
             [username, userType]
         );
 
@@ -47,27 +46,15 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ success: false, message: "Incorrect username or user type" });
         }
 
-        const storedHashedPassword = result.rows[0].password;
-        console.log("🔍 Stored Hashed Password:", storedHashedPassword);
-
-        // ✅ Correct password verification
-        const passwordMatchResult = await pool.query(
-            `SELECT crypt($1, $2) = $2 AS match`,
-            [password, storedHashedPassword]
-        );
-
-        console.log("🔍 Password Match Result:", passwordMatchResult.rows[0].match);
-
-        if (!passwordMatchResult.rows[0].match) {
+        if (result.rows[0].password !== password) {
             return res.status(401).json({ success: false, message: "Incorrect password" });
         }
 
-        return res.status(200).json({ 
-            success: true, 
-            message: "Login successful", 
+        return res.status(200).json({
+            success: true,
+            message: `${userType} login successful`,
             userType: result.rows[0].user_type,
             full_name: result.rows[0].full_name,
-            course_name: result.rows[0].course_name
         });
 
     } catch (error) {
@@ -86,54 +73,43 @@ router.post('/login', async (req, res) => {
  *     summary: Change student password
  *     description: Allows students to update their password securely.
  */
+
 router.post('/change-password', async (req, res) => {
     try {
-        const { username, currentPassword, newPassword } = req.body;
+        const { username, currentPassword, newPassword, confirmPassword } = req.body;
 
-        if (!username || !currentPassword || !newPassword) {
+        // ✅ Validate all fields
+        if (!username || !currentPassword || !newPassword || !confirmPassword) {
             return res.status(400).json({ success: false, message: "All fields are required" });
         }
 
-        // ✅ Fetch stored password hash
+        // ✅ Validate new password ≠ old password
+        if (currentPassword === newPassword) {
+            return res.status(400).json({ success: false, message: "New password must be different from the old password" });
+        }
+
+        // ✅ Validate new password = confirm password
+        if (newPassword !== confirmPassword) {
+            return res.status(400).json({ success: false, message: "New password and confirm password do not match" });
+        }
+
         const result = await pool.query(
-            `SELECT password FROM login WHERE username = $1`,
-            [username]
+            "SELECT change_student_password($1, $2, $3, $4) AS success",
+            [username, currentPassword, newPassword, confirmPassword]
         );
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, message: "User not found" });
+        if (!result.rows[0].success) {
+            return res.status(401).json({ success: false, message: "Incorrect current password or user not found" });
         }
 
-        const storedHashedPassword = result.rows[0].password;
-
-        // ✅ Check if current password matches
-        const passwordMatch = await pool.query(
-            `SELECT password = crypt($1, password) AS match FROM login WHERE username = $2`,
-            [currentPassword, username]
-        );
-
-        if (!passwordMatch.rows[0].match) {
-            return res.status(401).json({ success: false, message: "Incorrect current password" });
-        }
-
-        // ✅ Hash the new password before updating
-        const newHashedPassword = await pool.query(
-            `SELECT crypt($1, gen_salt('bf')) AS hashed_password`,
-            [newPassword]
-        );
-
-        await pool.query(
-            `UPDATE login SET password = $1 WHERE username = $2`,
-            [newHashedPassword.rows[0].hashed_password, username]
-        );
-
-        return res.status(200).json({ success: true, message: "Password changed successfully" });
+        res.status(200).json({ success: true, message: "Password changed successfully" });
 
     } catch (error) {
-        console.error("❌ Password Change Error:", error);
-        return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+        console.error("❌ Change Password Error:", error);
+        res.status(500).json({ success: false, message: error.message });
     }
 });
+
 
 
 module.exports = router;

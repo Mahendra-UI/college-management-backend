@@ -10,6 +10,8 @@ const courseRoutes = require('./routes/course.routes');
 const subjectsRoutes = require('./routes/subjects.routes');
 const resultsRoutes = require('./routes/results.routes');
 const notificationsRoutes = require('./routes/notifications.routes');
+const feeledgerRoutes = require('./routes/feeledger.routes');
+
 
 
 
@@ -49,6 +51,7 @@ app.use('/api', courseRoutes);
 app.use('/api', subjectsRoutes);
 app.use('/api', resultsRoutes);
 app.use('/api', notificationsRoutes);
+app.use('/api', feeledgerRoutes);
 
 // ✅ Start Server
 app.listen(port, () => {

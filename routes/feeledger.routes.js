@@ -69,17 +69,18 @@ router.get('/fee-types', async (req, res) => {
  *       500:
  *         description: Internal Server Error.
  */
+
 router.post('/fee-ledger', async (req, res) => {
     try {
-        const { fee_type_id, course_id, semester_id, year, fee_amount } = req.body;
+        const { fee_type_id, course_id, semester_id, year, fee_amount, fee_ledger_description } = req.body;
 
-        if (!fee_type_id || !course_id || !semester_id || !year || !fee_amount) {
+        if (!fee_type_id || !course_id || !semester_id || !year || !fee_amount || !fee_ledger_description) {
             return res.status(400).json({ success: false, message: "All fields are required" });
         }
 
         const result = await pool.query(
-            `SELECT insert_fee_ledger($1, $2, $3, $4, $5) AS fee_ledger_id`,
-            [fee_type_id, course_id, semester_id, year, fee_amount]
+            `SELECT insert_fee_ledger($1, $2, $3, $4, $5, $6) AS fee_ledger_id`,
+            [fee_type_id, course_id, semester_id, year, fee_amount, fee_ledger_description]
         );
 
         return res.status(201).json({ 
@@ -93,6 +94,8 @@ router.post('/fee-ledger', async (req, res) => {
         return res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 });
+
+
 
 
 /**
@@ -119,22 +122,27 @@ router.get('/fee-ledger', async (req, res) => {
 
 
 
-
 /**
  * @swagger
  * /api/fee-ledger/{id}:
  *   get:
- *     tags: [Fee Information]
- *     summary: Get a specific fee ledger record by ID
+ *     summary: Get fee ledger details by ID
+ *     description: Fetch the details of a specific fee ledger record by ID.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Fee ledger ID
+ *     responses:
+ *       200:
+ *         description: Successfully fetched fee ledger record
  */
-
 router.get('/fee-ledger/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const result = await pool.query(
-            `SELECT * FROM fee_ledger WHERE fee_ledger_id = $1;`, 
-            [id]
-        );
+        const result = await pool.query(`SELECT * FROM fee_ledger WHERE fee_ledger_id = $1`, [id]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: "Fee ledger record not found" });
@@ -196,21 +204,22 @@ router.get('/fee-ledger/:id', async (req, res) => {
  *       500:
  *         description: Internal Server Error.
  */
+
+
 router.put('/fee-ledger/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        let { fee_type_id, course_id, semester_id, year, fee_amount } = req.body;
+        let { fee_type_id, course_id, semester_id, year, fee_ledger_description, fee_amount } = req.body;
 
-        if (!fee_type_id || !course_id || !semester_id || !year || !fee_amount) {
+        if (!fee_type_id || !course_id || !semester_id || !year || !fee_ledger_description || !fee_amount) {
             return res.status(400).json({ success: false, message: "All fields are required" });
         }
 
-        // ✅ Ensure `year` is an INTEGER
         year = parseInt(year);
 
         const result = await pool.query(
-            `SELECT update_fee_ledger($1, $2, $3, $4, $5, $6) AS updated;`, 
-            [id, fee_type_id, course_id, semester_id, year, fee_amount]
+            `SELECT update_fee_ledger($1, $2, $3, $4, $5, $6, $7) AS updated;`, 
+            [id, fee_type_id, course_id, semester_id, year, fee_ledger_description, fee_amount]
         );
 
         if (result.rows[0].updated) {
@@ -244,6 +253,231 @@ router.delete('/fee-ledger/:id', async (req, res) => {
         return res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 });
+
+
+
+/**
+ * @swagger
+ * /api/fee-ledger/student/{username}:
+ *   get:
+ *     tags: [Fee Information]
+ *     summary: Fetch fee ledgers for a student based on their username
+ *     description: Retrieves fee ledger records based on the student's enrolled course.
+ *     parameters:
+ *       - name: username
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Student's username to fetch associated fee ledgers"
+ *     responses:
+ *       '200':
+ *         description: Successfully retrieved fee ledger records
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 feeLedgers:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       fee_ledger_id:
+ *                         type: integer
+ *                         example: 7
+ *                       fee_type_name:
+ *                         type: string
+ *                         example: "Library Fee"
+ *                       course_name:
+ *                         type: string
+ *                         example: "ETC"
+ *                       semester_name:
+ *                         type: string
+ *                         example: "Semester - I"
+ *                       year:
+ *                         type: integer
+ *                         example: 2024
+ *                       fee_amount:
+ *                         type: number
+ *                         example: 2000
+ *                       fee_ledger_description:
+ *                         type: string
+ *                         example: "Library fee description"
+ *                       created_at:
+ *                         type: string
+ *                         example: "2025-02-20T14:18:26.508Z"
+ *                       updated_at:
+ *                         type: string
+ *                         example: "2025-02-21T08:39:29.845Z"
+ *       '404':
+ *         description: No fee ledger records found for this student
+ *       '500':
+ *         description: Internal Server Error
+ */
+
+
+
+router.get('/fee-ledger/student/:username', async (req, res) => {
+    try {
+        const { username } = req.params;
+        console.log("📩 Fetching fee ledgers for username:", username);
+
+        const result = await pool.query(
+            'SELECT * FROM public.get_fee_ledgers_by_username($1)', 
+            [username]  // ✅ Pass username as parameter
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "No fee ledger records found for this student" });
+        }
+
+        return res.status(200).json({ success: true, feeLedgers: result.rows });
+
+    } catch (error) {
+        console.error("❌ Error fetching fee ledger records:", error);
+        return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+
+
+
+
+/**
+ * @swagger
+ * /api/payments:
+ *   post:
+ *     summary: Process a fee payment
+ *     tags: [Payments]
+ *     description: Stores payment details and updates fee status.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fee_ledger_id:
+ *                 type: integer
+ *               username:
+ *                 type: string
+ *               amount:
+ *                 type: number
+ *     responses:
+ *       201:
+ *         description: Payment successful.
+ *       400:
+ *         description: Missing required fields.
+ *       500:
+ *         description: Internal Server Error.
+ */
+router.post('/payments', async (req, res) => {
+    try {
+        const { fee_ledger_id, username, amount } = req.body;
+
+        if (!fee_ledger_id || !username || !amount) {
+            return res.status(400).json({ success: false, message: "Missing required fields" });
+        }
+
+        // ✅ Generate Unique Transaction ID
+        const transaction_id = `TXN${Date.now()}`;
+
+        // ✅ Insert Payment Record
+        const result = await pool.query(
+            `INSERT INTO payments (fee_ledger_id, username, transaction_id, payment_status, amount_paid)
+             VALUES ($1, $2, $3, 'Completed', $4) RETURNING *`,
+            [fee_ledger_id, username, transaction_id, amount]
+        );
+
+        return res.status(201).json({
+            success: true,
+            message: "Payment successful",
+            transaction_id: transaction_id,
+            paymentDetails: result.rows[0]
+        });
+
+    } catch (error) {
+        console.error("❌ Payment Error:", error);
+        return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+/**
+ * @swagger
+ * /api/receipt/{transactionId}:
+ *   get:
+ *     tags: [Payments]
+ *     summary: Fetch receipt details by transaction ID
+ *     description: Retrieves receipt details for a completed fee payment.
+ *     parameters:
+ *       - name: transactionId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Transaction ID of the payment"
+ *     responses:
+ *       '200':
+ *         description: Successfully retrieved receipt details
+ *       '404':
+ *         description: Receipt not found
+ *       '500':
+ *         description: Internal Server Error
+ */
+
+
+router.get('/receipt/:transactionId', async (req, res) => {
+    try {
+        const { transactionId } = req.params;
+
+        if (!transactionId) {
+            return res.status(400).json({ success: false, message: "Transaction ID is required" });
+        }
+
+        const query = `
+            SELECT 
+                p.payment_id, 
+                p.fee_ledger_id, 
+                p.username, 
+                p.transaction_id, 
+                p.payment_status, 
+                p.amount_paid, 
+                p.payment_date, 
+                fl.fee_type_id, 
+                ft.fee_type_name, 
+                fl.course_id, 
+                c.course_name, 
+                fl.semester_id, 
+                s.semester_name, 
+                fl.year
+            FROM payments p
+            JOIN fee_ledger fl ON p.fee_ledger_id = fl.fee_ledger_id
+            JOIN fee_types ft ON fl.fee_type_id = ft.fee_type_id
+            JOIN courses c ON fl.course_id = c.course_id
+            JOIN semesters s ON fl.semester_id = s.semester_id
+            WHERE p.transaction_id = $1
+        `;
+
+        const result = await pool.query(query, [transactionId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "Receipt not found" });
+        }
+
+        return res.status(200).json({ success: true, receipt: result.rows[0] });
+
+    } catch (error) {
+        console.error("❌ Error fetching receipt:", error);
+        return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
 
 
 module.exports = router;

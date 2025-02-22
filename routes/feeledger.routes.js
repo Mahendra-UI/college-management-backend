@@ -480,4 +480,71 @@ router.get('/receipt/:transactionId', async (req, res) => {
 
 
 
+/**
+ * @swagger
+ * /api/students/fee-status:
+ *   get:
+ *     tags: [Fee Information]
+ *     summary: Fetch fee status for all students
+ *     description: Retrieves all students' fee ledgers along with their payment status.
+ *     responses:
+ *       '200':
+ *         description: Successfully retrieved students' fee status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 feeStatus:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       student_username:
+ *                         type: string
+ *                       student_name:
+ *                         type: string
+ *                       course_name:
+ *                         type: string
+ *                       semester_name:
+ *                         type: string
+ *                       fee_ledger_id:
+ *                         type: integer
+ *                       fee_type_name:
+ *                         type: string
+ *                       year:
+ *                         type: integer
+ *                       fee_amount:
+ *                         type: number
+ *                       fee_status:
+ *                         type: string
+ *                       transaction_id:
+ *                         type: string
+ *                       payment_date:
+ *                         type: string
+ *       '500':
+ *         description: Internal Server Error
+ */
+
+router.get('/students/fee-status', async (req, res) => {
+    try {
+        console.log("📩 Fetching all students' fee status...");
+        
+        const result = await pool.query('SELECT * FROM get_all_students_fee_status()');
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "No fee records found." });
+        }
+
+        return res.status(200).json({ success: true, feeStatus: result.rows });
+
+    } catch (error) {
+        console.error("❌ Error fetching students' fee status:", error);
+        return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
 module.exports = router;

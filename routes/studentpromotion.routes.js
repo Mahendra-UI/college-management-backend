@@ -10,14 +10,13 @@ const router = express.Router();
  *   description: API endpoints for managing student promotions
  */
 
-
 /**
  * @swagger
  * /api/promotions:
  *   post:
  *     tags: [Student Promotion]
- *     summary: Insert student promotions
- *     description: Inserts multiple student promotion records
+ *     summary: Promote students to the next academic year
+ *     description: Inserts promotion details for students and updates their current academic year.
  *     requestBody:
  *       required: true
  *       content:
@@ -25,32 +24,23 @@ const router = express.Router();
  *           schema:
  *             type: object
  *             properties:
- *               courseId:
- *                 type: integer
- *                 example: 2
  *               students:
  *                 type: array
  *                 items:
  *                   type: object
  *                   properties:
- *                     studentId:
- *                       type: integer
- *                       example: 1
  *                     username:
  *                       type: string
- *                       example: "B224001"
- *                     fullName:
- *                       type: string
- *                       example: "Mahendra"
- *                     currentYear:
- *                       type: string
- *                       example: "First Year"
- *               updatedYear:
- *                 type: string
- *                 example: "Second Year"
+ *                       example: "B322001"
+ *                     courseId:
+ *                       type: integer
+ *                       example: 3
+ *                     academicCourseYearId:
+ *                       type: integer
+ *                       example: 2
  *     responses:
  *       201:
- *         description: Students promoted successfully
+ *         description: Student promotions recorded successfully
  *       400:
  *         description: Invalid request data
  *       500:
@@ -60,68 +50,117 @@ const router = express.Router();
 
 router.post('/promotions', async (req, res) => {
     try {
-        const { courseId, currentYear, updatedYear, students } = req.body;
+        const { students } = req.body;
 
-        if (!courseId || !currentYear || !updatedYear || !students || students.length === 0) {
-            return res.status(400).json({ success: false, message: "All fields are required, and at least one student must be selected." });
+        if (!students || students.length === 0) {
+            return res.status(400).json({ success: false, message: "⚠️ At least one student must be provided." });
         }
 
-        let values = [];
+        let promotionIds = [];
 
-        for (const username of students) {
-            // ✅ Fetch student_id from `students` table
+        for (const student of students) {
+            let { username, courseId, academicCourseYearId } = student;
+
+            // ✅ Convert to integers
+            courseId = parseInt(courseId, 10);
+            academicCourseYearId = parseInt(academicCourseYearId, 10);
+
+            // ✅ Validate input
+            if (!username || isNaN(courseId) || isNaN(academicCourseYearId)) {
+                return res.status(400).json({ success: false, message: "⚠️ Missing or invalid course/year selection." });
+            }
+
+            // ✅ Fetch Student ID using Username
             const studentQuery = await pool.query(
-                "SELECT student_id, full_name, enrollment_year FROM students WHERE username = $1",
+                "SELECT student_id FROM students WHERE username = $1",
                 [username]
             );
 
             if (studentQuery.rows.length === 0) {
-                console.error(`❌ No student found with username: ${username}`);
-                continue;
+                return res.status(404).json({ success: false, message: `⚠️ No student found with username: ${username}` });
             }
 
-            const student = studentQuery.rows[0];
+            const studentId = studentQuery.rows[0].student_id;
 
-            values.push([
-                student.student_id,
-                courseId,
-                username,
-                student.full_name,
-                currentYear,
-                updatedYear,
-                student.enrollment_year
-            ]);
+            try {
+                // ✅ Call PostgreSQL Function
+                const result = await pool.query(
+                    "SELECT insert_student_promotion($1, $2, $3) AS promotion_id",
+                    [studentId, courseId, academicCourseYearId]
+                );
+
+                if (result.rows[0] && result.rows[0].promotion_id) {
+                    promotionIds.push(result.rows[0].promotion_id);
+                }
+            } catch (err) {
+                console.error(`❌ Error inserting promotion for student ${username}:`, err.message);
+                return res.status(500).json({ success: false, message: err.message });
+            }
         }
 
-        if (values.length === 0) {
-            return res.status(400).json({ success: false, message: "No valid students found." });
+        if (promotionIds.length === 0) {
+            return res.status(400).json({ success: false, message: "⚠️ No valid promotions were added." });
         }
 
-        // ✅ Insert all students into `student_promotion`
-        const insertQuery = `
-            INSERT INTO student_promotion (
-                student_id, course_id, username, full_name, 
-                current_year, updated_year, enrollment_year, 
-                created_at, updated_at
-            ) VALUES ${values.map((_, i) => `($${i * 7 + 1}, $${i * 7 + 2}, $${i * 7 + 3}, $${i * 7 + 4}, $${i * 7 + 5}, $${i * 7 + 6}, $${i * 7 + 7}, NOW(), NOW())`).join(", ")}
-            RETURNING promotion_id
-        `;
-
-        const insertValues = values.flat();
-        const result = await pool.query(insertQuery, insertValues);
-
-        res.status(200).json({ success: true, message: "Student promotions added successfully!", promotionIds: result.rows });
+        res.status(201).json({ success: true, message: `✅ ${promotionIds.length} student(s) promoted successfully!`, promotionIds });
 
     } catch (error) {
-        console.error("❌ Error inserting student promotions:", error);
-        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+        console.error("❌ Error processing promotions:", error);
+        res.status(500).json({ success: false, message: "❌ Internal Server Error", error: error.message });
     }
 });
 
 
+
 /**
  * @swagger
- * /api/promotions:
+ * /api/promotion-history/{username}:
+ *   get:
+ *     tags: [Student Promotion]
+ *     summary: Fetch student promotion history
+ *     description: Retrieves the entire promotion history for a student by username
+ *     parameters:
+ *       - name: username
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The username of the student
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved student promotion history
+ *       404:
+ *         description: No promotion history found for this student
+ *       500:
+ *         description: Internal Server Error
+ */
+
+
+router.get('/promotion-history/:username', async (req, res) => {
+    try {
+        const { username } = req.params;
+        const result = await pool.query(
+            "SELECT * FROM public.promotion_history WHERE username = $1 ORDER BY created_at DESC", 
+            [username]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "⚠️ No promotion history found for this student." });
+        }
+
+        res.status(200).json({ success: true, history: result.rows });
+    } catch (error) {
+        console.error("❌ Error fetching promotion history:", error);
+        res.status(500).json({ success: false, message: "❌ Internal Server Error", error: error.message });
+    }
+});
+
+
+
+
+/**
+ * @swagger
+ * /api/getpromotions:
  *   get:
  *     tags: [Student Promotion]
  *     summary: Fetch all student promotions
@@ -129,20 +168,26 @@ router.post('/promotions', async (req, res) => {
  *     responses:
  *       200:
  *         description: Successfully retrieved promotion records
+ *       404:
+ *         description: No promotions found
  *       500:
  *         description: Internal Server Error
  */
-router.get('/promotions', async (req, res) => {
+router.get('/getpromotions', async (req, res) => {
     try {
-        const result = await pool.query(`SELECT * FROM public.get_promotions();`);
+        const result = await pool.query('SELECT * FROM public.get_promotions()');
 
-        return res.status(200).json({ success: true, promotions: result.rows });
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "No promotions found" });
+        }
 
+        res.status(200).json({ success: true, promotions: result.rows });
     } catch (error) {
-        console.error("❌ Error fetching promotions:", error);
-        return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+        console.error('❌ Error fetching promotions:', error);
+        res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
     }
 });
+
 
 
 /**
@@ -151,7 +196,7 @@ router.get('/promotions', async (req, res) => {
  *   get:
  *     tags: [Student Promotion]
  *     summary: Fetch promotion details by ID
- *     description: Retrieves a promotion record by its ID, including enrollment course year and updated course year.
+ *     description: Retrieves a promotion record by its ID, including enrollment and updated course year.
  *     parameters:
  *       - name: promotionId
  *         in: path
@@ -187,42 +232,47 @@ router.get('/promotions/:promotionId', async (req, res) => {
 
 /**
  * @swagger
- * /api/getstudentsbycourseandyear/{courseId}/{currentYear}:
+ * /api/getstudentsbycourseandyear/{courseId}/{yearId}:
  *   get:
- *     summary: Fetch students by course and current year
- *     description: Retrieves students filtered by course and year.
+ *     tags: [Student Management]
+ *     summary: Fetch students by course and academic course year
+ *     description: Retrieves students based on the selected course and academic year.
  *     parameters:
  *       - name: courseId
  *         in: path
  *         required: true
  *         schema:
  *           type: integer
- *       - name: currentYear
+ *         description: The ID of the course.
+ *       - name: yearId
  *         in: path
  *         required: true
  *         schema:
- *           type: string
+ *           type: integer
+ *         description: The ID of the academic course year.
  *     responses:
- *       '200':
+ *       200:
  *         description: Successfully retrieved students.
- *       '404':
+ *       400:
+ *         description: Invalid input parameters.
+ *       404:
  *         description: No students found for the given course and year.
- *       '500':
+ *       500:
  *         description: Internal Server Error.
  */
-
-router.get('/getstudentsbycourseandyear/:courseId/:currentYear', async (req, res) => {
+router.get('/getstudentsbycourseandyear/:courseId/:yearId', async (req, res) => {
     try {
-        const { courseId, currentYear } = req.params;
+        const { courseId, yearId } = req.params;
         const parsedCourseId = parseInt(courseId, 10);
+        const parsedYearId = parseInt(yearId, 10);
 
-        if (isNaN(parsedCourseId) || !currentYear) {
+        if (isNaN(parsedCourseId) || isNaN(parsedYearId)) {
             return res.status(400).json({ success: false, message: "Invalid input parameters" });
         }
 
         const result = await pool.query(
-            `SELECT * FROM students WHERE course_id = $1 AND course_year = $2`, 
-            [parsedCourseId, currentYear]
+            `SELECT * FROM students WHERE course_id = $1 AND academic_course_year_id = $2`, 
+            [parsedCourseId, parsedYearId]
         );
 
         if (result.rows.length === 0) {
@@ -235,7 +285,6 @@ router.get('/getstudentsbycourseandyear/:courseId/:currentYear', async (req, res
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
-
 
 
 

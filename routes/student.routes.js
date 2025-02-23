@@ -12,47 +12,68 @@ const router = express.Router();
  *     description: APIs related to student operations
  */
 
+
 /**
  * @swagger
  * /api/savestudents:
  *   post:
- *     tags:
- *       - Student Management
- *     summary: Insert a new student and create login credentials
- *     description: Calls the stored function `insert_student` to insert a new student.
+ *     summary: Save student details directly using PostgreSQL function
+ *     description: Inserts a new student record by calling the database function directly
+ *     responses:
+ *       201:
+ *         description: Student successfully created
+ *       400:
+ *         description: Bad request due to missing fields or username conflict
+ *       500:
+ *         description: Internal server error
  */
-
-router.post('/savestudents', async (req, res) => {
+router.post("/savestudents", async (req, res) => {
     try {
-        const { full_name, father_name, student_gender, student_date_of_birth, mobile_no, email_id, course_id, academic_course_year_id, student_enrollment_date, student_address, student_status } = req.body;
-
-        // ✅ Validate that academic_course_year_id is present
-        if (!academic_course_year_id) {
-            return res.status(400).json({ success: false, message: "Academic Course Year ID is required" });
-        }
-
-        // ✅ Check if the academic course year exists in the database
-        const result = await pool.query(
-            `SELECT academic_course_year_name FROM academic_course_years WHERE academic_course_year_id = $1`,
-            [academic_course_year_id]
-        );
-
-        if (result.rows.length === 0) {
-            return res.status(400).json({ success: false, message: "Invalid Academic Course Year ID" });
-        }
-
-        // ✅ Insert student using the database function
-        const insertResult = await pool.query(`
-            SELECT insert_student($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        `, [full_name, father_name, student_gender, student_date_of_birth, mobile_no, email_id, course_id, academic_course_year_id, student_enrollment_date, student_address, student_status]);
-
-        res.status(200).json({ success: true, student_id: insertResult.rows[0].insert_student });
+      const studentData = req.body;
+  
+      // ✅ Call PostgreSQL function directly (no need to pass user_id)
+      const result = await pool.query(
+        `SELECT insert_student(
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+        ) AS student_id`,
+        [
+          studentData.full_name,
+          studentData.father_name,
+          studentData.student_gender,
+          studentData.student_date_of_birth,
+          studentData.mobile_no,
+          studentData.email_id,
+          studentData.course_id,
+          studentData.academic_course_year_id,
+          studentData.student_enrollment_date,
+          studentData.student_address,
+          studentData.student_status
+        ]
+      );
+  
+      if (result.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "⚠️ Failed to insert student.",
+        });
+      }
+  
+      res.status(201).json({
+        success: true,
+        message: "✅ Student added successfully!",
+        student_id: result.rows[0].student_id,
+      });
+  
     } catch (error) {
-        console.error("❌ Error saving student:", error);
-        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+      console.error("❌ Error inserting student:", error);
+      res.status(500).json({
+        success: false,
+        message: "❌ Internal Server Error",
+        error: error.message,
+      });
     }
-});
-
+  });
+  
 
 
 /**
@@ -140,15 +161,25 @@ router.get('/getstudents', async (req, res) => {
  *       200:
  *         description: Successfully retrieved academic course years
  */
+
+
 router.get('/getacademiccourseyears', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM academic_course_years');
-        res.status(200).json(result.rows);
+        const result = await pool.query(
+            `SELECT academic_course_year_id, academic_course_year_name FROM academic_course_years ORDER BY academic_course_year_id`
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "No academic course years found." });
+        }
+
+        res.status(200).json({ success: true, academicYears: result.rows });
     } catch (error) {
-        console.error('❌ Error fetching academic course years:', error);
-        res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
+        console.error("❌ Error fetching academic course years:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
-});  
+});
+
 
 /**
  * @swagger

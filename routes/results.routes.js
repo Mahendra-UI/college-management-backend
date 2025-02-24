@@ -48,10 +48,12 @@ router.post('/addstudentresult', async (req, res) => {
     try {
         const { username, courseId, semesterId, subjectId, studentCredits, resultStatus } = req.body;
 
+        // ✅ Check for missing fields
         if (!username || !courseId || !semesterId || !subjectId || !studentCredits || !resultStatus) {
             return res.status(400).json({ success: false, message: "All fields are required" });
         }
 
+        // ✅ Call the correct function and use `earned_credits` instead of `credits`
         const result = await pool.query(
             `SELECT insert_student_result($1, $2, $3, $4, $5, $6) AS response`,
             [username, courseId, semesterId, subjectId, studentCredits, resultStatus]
@@ -59,19 +61,22 @@ router.post('/addstudentresult', async (req, res) => {
 
         const responseMessage = result.rows[0].response;
 
+        // ✅ Handle duplicate entry properly
         if (responseMessage === 'Student result already exists') {
             return res.status(400).json({ success: false, message: responseMessage });
         }
 
-        res.status(201).json({ success: true, message: responseMessage });
+        return res.status(201).json({ success: true, message: responseMessage });
+
     } catch (error) {
         if (error.code === '23505') {  // Catch the duplicate entry error
             return res.status(400).json({ success: false, message: "Student result already exists" });
         }
         console.error("❌ Error adding student result:", error);
-        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+        return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
 
 
 /**
@@ -100,6 +105,7 @@ router.put('/updatestudentresult', async (req, res) => {
     }
 });
 
+
 /**
  * @swagger
  * /api/getstudentresult/{result_id}:
@@ -115,34 +121,6 @@ router.put('/updatestudentresult', async (req, res) => {
  *     responses:
  *       200:
  *         description: Successfully fetched student result
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 result:
- *                   type: object
- *                   properties:
- *                     result_id:
- *                       type: integer
- *                     username:
- *                       type: string
- *                     full_name:
- *                       type: string
- *                     course_name:
- *                       type: string
- *                     semester_name:
- *                       type: string
- *                     subject_name:
- *                       type: string
- *                     subject_code:
- *                       type: string
- *                     earned_credits:
- *                       type: integer
- *                     result_status:
- *                       type: string
  *       400:
  *         description: Invalid request, missing result_id
  *       404:
@@ -170,6 +148,8 @@ router.get('/getstudentresult/:result_id', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
+
 
 /**
  * @swagger
@@ -228,6 +208,8 @@ router.get('/getstudentresult/:result_id', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
+
 /**
  * @swagger
  * /api/getStudentResults/{username}/{semesterId}:
@@ -266,7 +248,7 @@ router.get('/getStudentResults/:username/:semesterId', async (req, res) => {
         console.log(`🔍 Fetching results for Username: ${username}, Semester: ${semesterId}`);
 
         const results = await pool.query(
-            `SELECT * FROM get_student_results_by_username($1) WHERE semester_name = (SELECT semester_name FROM semesters WHERE semester_id = $2)`, 
+            `SELECT * FROM get_student_results_by_username_semester($1, $2)`, 
             [username, semesterId]
         );
 

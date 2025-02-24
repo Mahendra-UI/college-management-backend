@@ -232,6 +232,7 @@ router.put('/updatesubject/:subject_id', async (req, res) => {
  * /api/getsubject/{subject_id}:
  *   get:
  *     summary: Fetch a subject by subject ID
+ *     tags: [Subjects]
  *     description: Retrieve subject details based on a given subject ID.
  *     parameters:
  *       - name: subject_id
@@ -240,8 +241,46 @@ router.put('/updatesubject/:subject_id', async (req, res) => {
  *         schema:
  *           type: integer
  *     responses:
- *       '200':
+ *       200:
  *         description: Successfully retrieved subject details.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 subject:
+ *                   type: object
+ *                   properties:
+ *                     subject_id:
+ *                       type: integer
+ *                     subject_name:
+ *                       type: string
+ *                     subject_code:
+ *                       type: string
+ *                     subject_credits:
+ *                       type: integer
+ *                     course_id:
+ *                       type: integer
+ *                     course_name:
+ *                       type: string
+ *                     semester_id:
+ *                       type: integer
+ *                     semester_name:
+ *                       type: string
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Invalid request, missing or invalid subject_id
+ *       404:
+ *         description: Subject not found
+ *       500:
+ *         description: Internal Server Error
  */
 router.get('/getsubject/:subject_id', async (req, res) => {
     try {
@@ -251,12 +290,17 @@ router.get('/getsubject/:subject_id', async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid Subject ID" });
         }
 
-        const result = await pool.query(`SELECT subject_id, course_id, semester_id, subject_name, subject_code, subject_credits FROM subjects WHERE subject_id = $1`, [subject_id]);
+        console.log(`📌 Fetching subject details for Subject ID: ${subject_id}`);
+
+        // Call the function directly
+        const result = await pool.query(`SELECT * FROM get_subject_by_id($1)`, [subject_id]);
 
         if (result.rows.length === 0) {
+            console.warn("⚠ Subject not found.");
             return res.status(404).json({ success: false, message: "Subject not found" });
         }
 
+        console.log("✅ Subject found:", result.rows[0]);
         res.status(200).json({ success: true, subject: result.rows[0] });
 
     } catch (error) {
@@ -264,6 +308,7 @@ router.get('/getsubject/:subject_id', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
 
 
 /**

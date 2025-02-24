@@ -126,6 +126,7 @@ router.get('/fee-ledger', async (req, res) => {
  * @swagger
  * /api/fee-ledger/{id}:
  *   get:
+ *     tags: [Fee Information]
  *     summary: Get fee ledger details by ID
  *     description: Fetch the details of a specific fee ledger record by ID.
  *     parameters:
@@ -138,21 +139,69 @@ router.get('/fee-ledger', async (req, res) => {
  *     responses:
  *       200:
  *         description: Successfully fetched fee ledger record
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 feeRecord:
+ *                   type: object
+ *                   properties:
+ *                     fee_ledger_id:
+ *                       type: integer
+ *                     fee_type_id:
+ *                       type: integer
+ *                     course_id:
+ *                       type: integer
+ *                     semester_id:
+ *                       type: integer
+ *                     year:
+ *                       type: string
+ *                     fee_amount:
+ *                       type: number
+ *                     fee_ledger_description:
+ *                       type: string
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Invalid request, missing or invalid fee_ledger_id
+ *       404:
+ *         description: Fee ledger record not found
+ *       500:
+ *         description: Internal Server Error
  */
 router.get('/fee-ledger/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const result = await pool.query(`SELECT * FROM fee_ledger WHERE fee_ledger_id = $1`, [id]);
+        console.log(`📌 Fetching fee ledger record for ID: ${id}`);
+
+        // Validate input
+        const feeLedgerId = parseInt(id, 10);
+        if (isNaN(feeLedgerId) || feeLedgerId <= 0) {
+            return res.status(400).json({ success: false, message: "Invalid Fee Ledger ID" });
+        }
+
+        // Query database for fee ledger record
+        const result = await pool.query(`SELECT * FROM fee_ledger WHERE fee_ledger_id = $1`, [feeLedgerId]);
 
         if (result.rows.length === 0) {
+            console.warn("⚠ Fee ledger record not found.");
             return res.status(404).json({ success: false, message: "Fee ledger record not found" });
         }
 
+        console.log("✅ Fee ledger record found:", result.rows[0]);
         return res.status(200).json({ success: true, feeRecord: result.rows[0] });
 
     } catch (error) {
-        console.error("Error fetching fee ledger record:", error);
-        return res.status(500).json({ success: false, message: "Internal Server Error" });
+        console.error("❌ Error fetching fee ledger record:", error);
+        return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
 

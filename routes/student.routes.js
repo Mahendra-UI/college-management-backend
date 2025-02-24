@@ -128,28 +128,73 @@ router.put('/updatestudent', async (req, res) => {
  *     summary: Fetch all students
  *     description: Calls the stored function `get_students` to retrieve student details.
  *     parameters:
- *       - name: p_type
- *         in: query
- *         required: false
+ *       - in: query
+ *         name: p_type
  *         schema:
  *           type: integer
+ *         required: false
  *         description: "0 to get all students, or a student ID to fetch a specific student"
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved student list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 students:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       student_id:
+ *                         type: integer
+ *                       full_name:
+ *                         type: string
+ *                       email_id:
+ *                         type: string
+ *                       mobile_no:
+ *                         type: string
+ *                       username:
+ *                         type: string
+ *                       course_name:
+ *                         type: string
+ *                       created_at:
+ *                         type: string
+ *                         format: date-time
+ *       400:
+ *         description: Invalid request, missing or incorrect parameters
+ *       500:
+ *         description: Internal Server Error
  */
+
 router.get('/getstudents', async (req, res) => {
-    try {
-        const p_type = req.query.p_type ? parseInt(req.query.p_type, 10) : 0;
+  try {
+      const p_type = req.query.p_type ? parseInt(req.query.p_type, 10) : 0;
 
-        if (isNaN(p_type)) {
-            return res.status(400).json({ success: false, message: 'Invalid p_type. Must be an integer.' });
-        }
+      if (isNaN(p_type)) {
+          return res.status(400).json({ success: false, message: 'Invalid p_type. Must be an integer.' });
+      }
 
-        const result = await pool.query(`SELECT * FROM get_students($1)`, [p_type]);
-        res.status(200).json({ success: true, students: result.rows });
-    } catch (error) {
-        console.error('❌ Error fetching students:', error);
-        res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
-    }
+      console.log(`🔍 Fetching students with p_type: ${p_type}`);
+
+      const result = await pool.query(`SELECT * FROM get_students($1)`, [p_type]);
+
+      if (result.rows.length === 0) {
+          console.warn("⚠ No students found.");
+          return res.status(404).json({ success: false, message: "No students found" });
+      }
+
+      console.log("✅ Sending response...");
+      res.status(200).json({ success: true, students: result.rows });
+  } catch (error) {
+      console.error('❌ Error fetching students:', error);
+      res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
+  }
 });
+
 
 
 /**
@@ -182,6 +227,54 @@ router.get('/getacademiccourseyears', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
+
+/**
+ * @swagger
+ * /api/getstudentsbyacademiccourseyearid:
+ *   get:
+ *     tags:
+ *       - Student Management
+ *     summary: Fetch students by academic course year ID
+ *     description: Retrieves students based on the academic course year ID.
+ *     parameters:
+ *       - in: query
+ *         name: academic_course_year_id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Pass `0` to get all students, pass a specific `academic_course_year_id` to filter, or leave empty for an empty result.
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved students
+ *       404:
+ *         description: No students found
+ *       500:
+ *         description: Internal Server Error
+ */
+
+router.get('/getstudentsbyacademiccourseyearid', async (req, res) => {
+  try {
+      const academicCourseYearId = req.query.academic_course_year_id ? parseInt(req.query.academic_course_year_id) : null;
+
+      if (academicCourseYearId === null) {
+          return res.status(200).json({ success: true, students: [] }); // Return empty result
+      }
+
+      const result = await pool.query("SELECT * FROM get_students_by_academic_course_year_id($1)", [academicCourseYearId]);
+
+      if (result.rows.length === 0) {
+          return res.status(404).json({ success: false, message: "No students found" });
+      }
+
+      res.status(200).json({ success: true, students: result.rows });
+
+  } catch (error) {
+      console.error("❌ Error fetching students:", error);
+      res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+  }
+});
+
 
 
 /**
@@ -296,5 +389,54 @@ router.delete('/deletestudent/:username', async (req, res) => {
     res.status(500).json({ success: false, message: 'Internal Server Error' });
   }
 });
+
+
+/**
+ * @swagger
+ * /api/getstudentsbycourse/{courseId}:
+ *   get:
+ *     summary: Fetch students by course ID
+ *     description: Retrieves a list of students enrolled in a specific course.
+ *     parameters:
+ *       - name: courseId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       '200':
+ *         description: Successfully retrieved student list
+ *       '404':
+ *         description: No students found for the given course
+ *       '500':
+ *         description: Internal Server Error
+ */
+
+router.get('/getstudentsbycourse/:courseId', async (req, res) => {
+  try {
+      const parsedCourseId = parseInt(req.params.courseId, 10);
+
+      if (isNaN(parsedCourseId)) {
+          console.error("❌ Invalid Course ID received:", req.params.courseId);
+          return res.status(400).json({ success: false, message: "Invalid course ID" });
+      }
+
+      console.log(`📌 Fetching students for Course ID: ${parsedCourseId}`);
+
+      const result = await pool.query(`SELECT * FROM students WHERE course_id = $1`, [parsedCourseId]);
+
+      if (result.rows.length === 0) {
+          console.warn("⚠ No students found for this course.");
+          return res.status(404).json({ success: false, message: "No students found" });
+      }
+
+      res.status(200).json({ success: true, students: result.rows });
+
+  } catch (error) {
+      console.error("❌ Error fetching students:", error);
+      res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+  }
+});
+
 
 module.exports = router;

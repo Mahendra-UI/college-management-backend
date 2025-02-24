@@ -4,10 +4,18 @@ const router = express.Router();
 
 /**
  * @swagger
+ * tags:
+ *   name: Student Results
+ *   description: API endpoints for managing student results
+ */
+
+
+/**
+ * @swagger
  * /api/addstudentresult:
  *   post:
  *     summary: Add a new student result
- *     description: Inserts a student result only if it does not already exist.
+ *     tags: [Student Results]
  *     requestBody:
  *       required: true
  *       content:
@@ -28,244 +36,161 @@ const router = express.Router();
  *               resultStatus:
  *                 type: string
  *                 enum: [Pass, Fail]
- *             required:
- *               - username
- *               - courseId
- *               - semesterId
- *               - subjectId
- *               - studentCredits
- *               - resultStatus
  *     responses:
- *       '201':
+ *       201:
  *         description: Successfully added student result
- *       '400':
- *         description: Bad Request - Fields Missing or Duplicate Entry
- *       '500':
+ *       400:
+ *         description: Bad Request - Student result already exists
+ *       500:
  *         description: Internal Server Error
  */
 router.post('/addstudentresult', async (req, res) => {
     try {
         const { username, courseId, semesterId, subjectId, studentCredits, resultStatus } = req.body;
 
-        // ✅ Check for missing fields
         if (!username || !courseId || !semesterId || !subjectId || !studentCredits || !resultStatus) {
-            return res.status(400).json({ success: false, message: "⚠️ All fields are required." });
+            return res.status(400).json({ success: false, message: "All fields are required" });
         }
 
-        // ✅ Check for duplicate record
-        const existingResult = await pool.query(
-            `SELECT * FROM student_results 
-             WHERE username = $1 AND course_id = $2 AND semester_id = $3 AND subject_id = $4`,
-            [username, courseId, semesterId, subjectId]
-        );
-
-        if (existingResult.rows.length > 0) {
-            return res.status(409).json({ success: false, message: "🚫 Student result already exists for this subject." });
-        }
-
-        // ✅ Insert new student result
-        await pool.query(
-            `INSERT INTO student_results (username, course_id, semester_id, subject_id, credits, result_status)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
+        const result = await pool.query(
+            `SELECT insert_student_result($1, $2, $3, $4, $5, $6) AS response`,
             [username, courseId, semesterId, subjectId, studentCredits, resultStatus]
         );
 
-        res.status(201).json({ success: true, message: "✅ Student result added successfully!" });
+        const responseMessage = result.rows[0].response;
 
+        if (responseMessage === 'Student result already exists') {
+            return res.status(400).json({ success: false, message: responseMessage });
+        }
+
+        res.status(201).json({ success: true, message: responseMessage });
     } catch (error) {
-        console.error("❌ Error inserting student result:", error);
-        res.status(500).json({ success: false, message: "❌ Internal Server Error. Please try again later." });
+        if (error.code === '23505') {  // Catch the duplicate entry error
+            return res.status(400).json({ success: false, message: "Student result already exists" });
+        }
+        console.error("❌ Error adding student result:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
-
 
 
 /**
  * @swagger
  * /api/updatestudentresult:
  *   put:
- *     summary: Update an existing student result
- *     description: Updates a student's result by username, courseId, semesterId, and subjectId.
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               username:
- *                 type: string
- *               courseId:
- *                 type: integer
- *               semesterId:
- *                 type: integer
- *               subjectId:
- *                 type: integer
- *               studentCredits:
- *                 type: integer
- *               resultStatus:
- *                 type: string
- *                 enum: [Pass, Fail]
- *             required:
- *               - username
- *               - courseId
- *               - semesterId
- *               - subjectId
- *               - studentCredits
- *               - resultStatus
- *     responses:
- *       '200':
- *         description: Successfully updated student result
- *       '400':
- *         description: Bad Request - Fields Missing or Record Not Found
- *       '500':
- *         description: Internal Server Error
+ *     summary: Update a student result
+ *     tags: [Student Results]
  */
-
 router.put('/updatestudentresult', async (req, res) => {
     try {
         const { username, courseId, semesterId, subjectId, studentCredits, resultStatus } = req.body;
 
-        // ✅ Validate all fields
         if (!username || !courseId || !semesterId || !subjectId || !studentCredits || !resultStatus) {
             return res.status(400).json({ success: false, message: "All fields are required" });
         }
 
-        // ✅ Check if the result exists
-        const existingResult = await pool.query(
-            `SELECT * FROM student_results WHERE username = $1 AND course_id = $2 AND semester_id = $3 AND subject_id = $4`,
-            [username, courseId, semesterId, subjectId]
-        );
-
-        if (existingResult.rows.length === 0) {
-            return res.status(400).json({ success: false, message: "Student result not found for update" });
-        }
-
-        // ✅ Update student result
-        await pool.query(
-            `UPDATE student_results 
-             SET credits = $5, result_status = $6 
-             WHERE username = $1 AND course_id = $2 AND semester_id = $3 AND subject_id = $4`,
+        const result = await pool.query(
+            `SELECT update_student_result($1, $2, $3, $4, $5, $6) AS response`,
             [username, courseId, semesterId, subjectId, studentCredits, resultStatus]
         );
 
-        res.status(200).json({ success: true, message: "Student result updated successfully" });
-
+        res.status(200).json({ success: true, message: result.rows[0].response });
     } catch (error) {
-        console.error("❌ Error updating student result:", error);
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
 
-
 /**
  * @swagger
- * /api/deletestudentresult/{result_id}:
- *   delete:
- *     summary: Delete a student result
- *     description: Deletes a student's result based on `result_id`.
+ * /api/getstudentresult/{result_id}:
+ *   get:
+ *     summary: Get student result by result_id
+ *     tags: [Student Results]
  *     parameters:
  *       - in: path
  *         name: result_id
  *         required: true
  *         schema:
  *           type: integer
- *         description: The unique result ID to be deleted.
  *     responses:
  *       200:
- *         description: Successfully deleted student result.
+ *         description: Successfully fetched student result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 result:
+ *                   type: object
+ *                   properties:
+ *                     result_id:
+ *                       type: integer
+ *                     username:
+ *                       type: string
+ *                     full_name:
+ *                       type: string
+ *                     course_name:
+ *                       type: string
+ *                     semester_name:
+ *                       type: string
+ *                     subject_name:
+ *                       type: string
+ *                     subject_code:
+ *                       type: string
+ *                     earned_credits:
+ *                       type: integer
+ *                     result_status:
+ *                       type: string
  *       400:
- *         description: Invalid request, missing result_id.
+ *         description: Invalid request, missing result_id
  *       404:
- *         description: Student result not found.
+ *         description: Student result not found
  *       500:
- *         description: Internal server error.
+ *         description: Internal server error
  */
 
-router.delete('/deletestudentresult/:result_id', async (req, res) => {
+router.get('/getstudentresult/:result_id', async (req, res) => {
     try {
         const { result_id } = req.params;
 
         if (!result_id) {
-            return res.status(400).json({ success: false, message: "Missing result_id parameter" });
+            return res.status(400).json({ success: false, message: "result_id parameter is required" });
         }
 
-        const result = await pool.query(`SELECT delete_student_result($1)`, [result_id]);
+        const result = await pool.query(`SELECT * FROM get_student_result_by_id($1)`, [result_id]);
 
-        if (result.rows[0].delete_student_result === 'Student result not found') {
+        if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: "Student result not found" });
         }
 
-        res.status(200).json({ success: true, message: "Student result deleted successfully" });
-
+        res.status(200).json({ success: true, result: result.rows[0] });
     } catch (error) {
-        console.error("❌ Error deleting student result:", error);
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
-
-
-
-// router.delete('/deletestudentresult/:result_id', async (req, res) => {
-//     try {
-//         const { result_id } = req.params;
-
-//         if (!result_id) {
-//             return res.status(400).json({ success: false, message: "Missing result_id parameter" });
-//         }
-
-//         const result = await pool.query(`DELETE FROM student_results WHERE result_id = $1 RETURNING *`, [result_id]);
-
-//         if (result.rowCount === 0) {
-//             return res.status(404).json({ success: false, message: "Student result not found" });
-//         }
-
-//         res.status(200).json({ success: true, message: "Student result deleted successfully" });
-
-//     } catch (error) {
-//         console.error("❌ Error deleting student result:", error);
-//         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
-//     }
-// });
-
-
 
 /**
  * @swagger
  * /api/getstudentresults:
  *   get:
  *     summary: Fetch all student results
- *     description: Retrieves a list of student results with full details including total credits and earned credits.
+ *     tags: [Student Results]
+ *     description: Retrieves a list of all student results with full details.
  *     responses:
  *       200:
  *         description: Successfully retrieved student results
  */
 router.get('/getstudentresults', async (req, res) => {
     try {
-        const result = await pool.query(`
-            SELECT 
-                sr.result_id,
-                sr.username,
-                s.full_name,
-                c.course_name,
-                sem.semester_name,
-                sub.subject_name,
-                sub.subject_code,
-                sub.subject_credits AS total_credits,  -- ✅ Total credits from subject
-                sr.credits AS earned_credits,  -- ✅ Earned credits by student
-                sr.result_status,
-                sr.created_at,
-                sr.updated_at  -- ✅ Last updated timestamp
-            FROM student_results sr
-            JOIN students s ON sr.username = s.username
-            JOIN courses c ON sr.course_id = c.course_id
-            JOIN semesters sem ON sr.semester_id = sem.semester_id
-            JOIN subjects sub ON sr.subject_id = sub.subject_id
-            ORDER BY sr.updated_at DESC;  -- ✅ Order by last update time
-        `);
+        console.log("🔍 Fetching student results...");
+        const result = await pool.query("SELECT * FROM get_all_student_results()");
+        console.log("📌 Query Result:", result.rows);
 
+        // ✅ Return 200 OK with an empty array if no results
         if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, message: "No student results found" });
+            return res.status(200).json({ success: true, results: [], message: "No student results found" });
         }
 
         res.status(200).json({ success: true, results: result.rows });
@@ -282,218 +207,72 @@ router.get('/getstudentresults', async (req, res) => {
  * /api/getstudentresult/{result_id}:
  *   get:
  *     summary: Get student result by result_id
- *     description: Fetches student result data based on result_id.
- *     parameters:
- *       - in: path
- *         name: result_id
- *         required: true
- *         schema:
- *           type: integer
- *         description: The unique ID of the student result.
- *     responses:
- *       200:
- *         description: Successfully fetched student result.
- *       400:
- *         description: Invalid request, missing result_id.
- *       404:
- *         description: Student result not found.
- *       500:
- *         description: Internal server error.
+ *     tags: [Student Results]
  */
-
 router.get('/getstudentresult/:result_id', async (req, res) => {
     try {
         const { result_id } = req.params;
 
         if (!result_id) {
-            return res.status(400).json({ success: false, message: "Missing result_id parameter" });
+            return res.status(400).json({ success: false, message: "result_id parameter is required" });
         }
 
-        const result = await pool.query(
-            `SELECT sr.result_id, sr.username, s.full_name, c.course_name, sr.course_id, sr.semester_id, sem.semester_name, 
-                    sr.subject_id, sub.subject_name, sr.credits, sr.result_status, sr.created_at, sr.updated_at
-             FROM student_results sr
-             JOIN students s ON sr.username = s.username
-             JOIN courses c ON sr.course_id = c.course_id
-             JOIN semesters sem ON sr.semester_id = sem.semester_id
-             JOIN subjects sub ON sr.subject_id = sub.subject_id
-             WHERE sr.result_id = $1`,
-            [result_id]
-        );
+        const result = await pool.query(`SELECT * FROM get_student_result_by_id($1)`, [result_id]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: "Student result not found" });
         }
 
         res.status(200).json({ success: true, result: result.rows[0] });
-
     } catch (error) {
-        console.error("❌ Error fetching student result:", error);
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
-
-
-/**
- * @swagger
- * /api/getstudentresultbyusername/{username}:
- *   get:
- *     summary: Get student result by username
- *     description: Fetches student result data based on username.
- *     parameters:
- *       - in: path
- *         name: username
- *         required: true
- *         schema:
- *           type: string
- *         description: The unique username of the student.
- *     responses:
- *       200:
- *         description: Successfully fetched student result.
- *       400:
- *         description: Invalid request, missing username.
- *       404:
- *         description: Student result not found.
- *       500:
- *         description: Internal server error.
- */
-
-
-router.get('/getstudentresultbyusername/:username', async (req, res) => {
-    try {
-        const { username } = req.params;
-
-        if (!username) {
-            return res.status(400).json({ success: false, message: "Missing username parameter" });
-        }
-
-        const result = await pool.query(
-            `SELECT sr.result_id, sr.username, s.full_name, c.course_name, sr.course_id, sr.semester_id, sem.semester_name, 
-                    sr.subject_id, sub.subject_name, sr.credits, sr.result_status, sr.created_at, sr.updated_at
-             FROM student_results sr
-             JOIN students s ON sr.username = s.username
-             JOIN courses c ON sr.course_id = c.course_id
-             JOIN semesters sem ON sr.semester_id = sem.semester_id
-             JOIN subjects sub ON sr.subject_id = sub.subject_id
-             WHERE sr.username = $1`,
-            [username]
-        );
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, message: "Student result not found" });
-        }
-
-        res.status(200).json({ success: true, results: result.rows });
-
-    } catch (error) {
-        console.error("❌ Error fetching student result:", error);
-        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
-    }
-});
-
-
-
-/**
- * @swagger
- * /api/getstudentsbycourse/{courseId}:
- *   get:
- *     summary: Fetch students by course ID
- *     description: Retrieves a list of students enrolled in a specific course.
- *     parameters:
- *       - name: courseId
- *         in: path
- *         required: true
- *         schema:
- *           type: integer
- *     responses:
- *       '200':
- *         description: Successfully retrieved student list
- *       '404':
- *         description: No students found for the given course
- *       '500':
- *         description: Internal Server Error
- */
-router.get('/getstudentsbycourse/:courseId', async (req, res) => {
-    try {
-        const { courseId } = req.params;
-        const parsedCourseId = parseInt(courseId, 10);
-
-        if (isNaN(parsedCourseId)) {
-            return res.status(400).json({ success: false, message: "Invalid course ID" });
-        }
-
-        const result = await pool.query(
-            `SELECT * FROM students WHERE course_id = $1`, 
-            [parsedCourseId]
-        );
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, message: "No students found for the given course." });
-        }
-
-        res.status(200).json({ success: true, students: result.rows });
-    } catch (error) {
-        console.error("❌ Error fetching students:", error);
-        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
-    }
-});
-
-
 /**
  * @swagger
  * /api/getStudentResults/{username}/{semesterId}:
  *   get:
  *     summary: Get student results by username and semester
+ *     tags: [Student Results]
  *     parameters:
  *       - in: path
  *         name: username
  *         required: true
  *         schema:
  *           type: string
+ *         description: The student's username.
  *       - in: path
  *         name: semesterId
  *         required: true
  *         schema:
  *           type: integer
+ *         description: The semester ID.
  *     responses:
  *       200:
- *         description: Successfully retrieved results
+ *         description: Successfully retrieved results.
  *       404:
- *         description: No results found
+ *         description: No results found for the specified username and semester.
  *       500:
- *         description: Internal Server Error
+ *         description: Internal Server Error.
  */
 router.get('/getStudentResults/:username/:semesterId', async (req, res) => {
     try {
         const { username, semesterId } = req.params;
 
-        console.log(`🔎 Fetching results for Username: ${username}, Semester: ${semesterId}`);
+        if (!username || isNaN(semesterId)) {
+            return res.status(400).json({ success: false, message: "Invalid username or semesterId" });
+        }
+
+        console.log(`🔍 Fetching results for Username: ${username}, Semester: ${semesterId}`);
 
         const results = await pool.query(
-            `SELECT 
-                r.result_id, 
-                r.username, 
-                s.subject_name, 
-                s.subject_code, 
-                s.subject_credits AS total_credits, 
-                r.credits AS earned_credits, 
-                r.result_status, 
-                c.course_name, 
-                sm.semester_name, 
-                r.created_at, 
-                r.updated_at
-            FROM student_results r
-            JOIN subjects s ON r.subject_id = s.subject_id
-            JOIN courses c ON r.course_id = c.course_id
-            JOIN semesters sm ON r.semester_id = sm.semester_id
-            WHERE r.username = $1 AND r.semester_id = $2
-            ORDER BY r.updated_at DESC`, // Sorting by latest updates
+            `SELECT * FROM get_student_results_by_username($1) WHERE semester_name = (SELECT semester_name FROM semesters WHERE semester_id = $2)`, 
             [username, semesterId]
         );
 
         if (results.rows.length > 0) {
             console.log("✅ Results Found:", results.rows);
-            res.json({ success: true, results: results.rows });
+            res.status(200).json({ success: true, results: results.rows });
         } else {
             console.warn("⚠ No results found for this semester.");
             res.status(404).json({ success: false, message: "No results found for this semester." });
@@ -503,6 +282,145 @@ router.get('/getStudentResults/:username/:semesterId', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
+
+/**
+ * @swagger
+ * /api/deletestudentresult/{result_id}:
+ *   delete:
+ *     summary: Delete a student result by result_id
+ *     tags: [Student Results]
+ *     parameters:
+ *       - in: path
+ *         name: result_id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The unique result ID of the student result to be deleted.
+ *     responses:
+ *       200:
+ *         description: Successfully deleted student result
+ *       404:
+ *         description: Student result not found
+ *       500:
+ *         description: Internal Server Error
+ */
+router.delete('/deletestudentresult/:result_id', async (req, res) => {
+    try {
+        const { result_id } = req.params;
+
+        if (!result_id || isNaN(result_id)) {
+            return res.status(400).json({ success: false, message: "Invalid result_id parameter" });
+        }
+
+        console.log(`🔍 Deleting student result with ID: ${result_id}`);
+
+        const result = await pool.query(`SELECT delete_student_result_by_id($1) AS response`, [result_id]);
+
+        if (result.rows[0].response === 'Student result not found') {
+            console.warn("⚠ Student result not found.");
+            return res.status(404).json({ success: false, message: "Student result not found" });
+        }
+
+        console.log("✅ Student result deleted successfully.");
+        res.status(200).json({ success: true, message: result.rows[0].response });
+
+    } catch (error) {
+        console.error("❌ Error deleting student result:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+/**
+ * @swagger
+ * /api/getstudentresultsbyusername/{username}:
+ *   get:
+ *     summary: Get student results by username
+ *     tags: [Student Results]
+ *     description: Fetches student result data based on the username using the stored function.
+ *     parameters:
+ *       - in: path
+ *         name: username
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The username of the student whose results are to be fetched.
+ *     responses:
+ *       200:
+ *         description: Successfully fetched student results.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       result_id:
+ *                         type: integer
+ *                       username:
+ *                         type: string
+ *                       full_name:
+ *                         type: string
+ *                       course_name:
+ *                         type: string
+ *                       semester_name:
+ *                         type: string
+ *                       subject_name:
+ *                         type: string
+ *                       subject_code:
+ *                         type: string
+ *                       total_credits:
+ *                         type: integer
+ *                       earned_credits:
+ *                         type: integer
+ *                       result_status:
+ *                         type: string
+ *                       created_at:
+ *                         type: string
+ *                         format: date-time
+ *                       updated_at:
+ *                         type: string
+ *                         format: date-time
+ *       400:
+ *         description: Invalid request, missing username
+ *       404:
+ *         description: Student results not found
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/getstudentresultsbyusername/:username', async (req, res) => {
+    try {
+        const { username } = req.params;
+
+        if (!username) {
+            return res.status(400).json({ success: false, message: "Username parameter is required" });
+        }
+
+        console.log(`🔍 Fetching student results for username: ${username}`);
+
+        // Call the PostgreSQL function
+        const result = await pool.query(`SELECT * FROM get_student_results_by_username($1)`, [username]);
+
+        if (result.rows.length === 0) {
+            console.warn("⚠ No student results found.");
+            return res.status(404).json({ success: false, message: "Student results not found" });
+        }
+
+        console.log("✅ Student results found:", result.rows);
+        res.status(200).json({ success: true, results: result.rows });
+
+    } catch (error) {
+        console.error("❌ Error fetching student results:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
 
 
 module.exports = router;

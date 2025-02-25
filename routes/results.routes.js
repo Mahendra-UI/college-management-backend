@@ -155,28 +155,21 @@ router.get('/getstudentresult/:result_id', async (req, res) => {
  * @swagger
  * /api/getstudentresults:
  *   get:
- *     summary: Fetch all student results
+ *     summary: Fetch all student results sorted by ascending result_id.
  *     tags: [Student Results]
- *     description: Retrieves a list of all student results with full details.
- *     responses:
- *       200:
- *         description: Successfully retrieved student results
  */
 router.get('/getstudentresults', async (req, res) => {
     try {
-        console.log("🔍 Fetching student results...");
-        const result = await pool.query("SELECT * FROM get_all_student_results()");
-        console.log("📌 Query Result:", result.rows);
+        const result = await pool.query(`SELECT * FROM get_all_student_results() ORDER BY result_id ASC`); // ✅ Ensuring order here
 
-        // ✅ Return 200 OK with an empty array if no results
         if (result.rows.length === 0) {
-            return res.status(200).json({ success: true, results: [], message: "No student results found" });
+            return res.status(404).json({ success: false, message: "No results found." });
         }
 
         res.status(200).json({ success: true, results: result.rows });
 
     } catch (error) {
-        console.error("❌ Error Fetching Student Results:", error);
+        console.error("❌ Error fetching student results:", error);
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
@@ -287,6 +280,8 @@ router.get('/getStudentResults/:username/:semesterId', async (req, res) => {
  *       500:
  *         description: Internal Server Error
  */
+
+
 router.delete('/deletestudentresult/:result_id', async (req, res) => {
     try {
         const { result_id } = req.params;

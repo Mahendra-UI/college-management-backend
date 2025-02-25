@@ -36,18 +36,24 @@ router.post('/addsubject', async (req, res) => {
     try {
         const { courseId, semesterId, subjectName, subjectCredits } = req.body;
 
-        if (!courseId || !semesterId || !subjectName || !subjectCredits) {
+        if (!courseId || !semesterId || !subjectName || subjectCredits === undefined) {
             return res.status(400).json({ success: false, message: "All fields are required" });
         }
 
-        // ✅ Generate a new subjectCode (only for new subjects)
+        // ✅ Ensure subjectCredits is a valid number
+        const parsedCredits = Number(subjectCredits);
+        if (isNaN(parsedCredits) || parsedCredits <= 0) {
+            return res.status(400).json({ success: false, message: "Invalid subject credits" });
+        }
+
+        // ✅ Generate a new subjectCode
         const subjectCode = `SUB-${courseId}-${semesterId}-${Date.now().toString().slice(-5)}`;
 
-        // ✅ Insert new subject and return the subject_id
+        // ✅ Insert new subject
         const result = await pool.query(
             `INSERT INTO subjects (course_id, semester_id, subject_name, subject_code, subject_credits)
              VALUES ($1, $2, $3, $4, $5) RETURNING subject_id`,
-            [courseId, semesterId, subjectName, subjectCode, subjectCredits]
+            [courseId, semesterId, subjectName, subjectCode, parsedCredits]
         );
 
         res.status(201).json({ 
@@ -85,52 +91,22 @@ router.post('/addsubject', async (req, res) => {
  *     responses:
  *       '200':
  *         description: Successfully retrieved subjects
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 subjects:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       subject_id:
- *                         type: integer
- *                         example: 5
- *                       subject_name:
- *                         type: string
- *                         example: "Mathematics"
- *                       subject_code:
- *                         type: string
- *                         example: "MATH101"
- *                       subject_credits:
- *                         type: integer
- *                         example: 4
- *                       course_name:
- *                         type: string
- *                         example: "Computer Science"
- *                       semester_name:
- *                         type: string
- *                         example: "First Semester"
  *       '400':
  *         description: Invalid input data (Non-numeric values)
  *       '500':
  *         description: Internal Server Error
  */
+
 router.get('/getsubjects/:courseId/:semesterId', async (req, res) => {
     try {
         const { courseId, semesterId } = req.params;
 
-        // ✅ Debugging - Log the values received
-        console.log("📩 Received Request with courseId:", courseId, "semesterId:", semesterId);
+        // ✅ Debugging logs
+        console.log("📩 Received API Request:", courseId, semesterId);
 
-        // ✅ Convert parameters to numbers & Validate
-        const parsedCourseId = Number(courseId);
-        const parsedSemesterId = Number(semesterId);
+        // ✅ Convert parameters to numbers & validate
+        const parsedCourseId = parseInt(courseId, 10);
+        const parsedSemesterId = parseInt(semesterId, 10);
 
         if (isNaN(parsedCourseId) || isNaN(parsedSemesterId)) {
             console.error("🚨 Error: Received NaN for courseId or semesterId");
@@ -138,16 +114,23 @@ router.get('/getsubjects/:courseId/:semesterId', async (req, res) => {
         }
 
         // ✅ Query Database
-        const result = await pool.query('SELECT * FROM public.get_subjects($1, $2)', [parsedCourseId, parsedSemesterId]);
+        const result = await pool.query(
+            `SELECT * FROM public.get_subjects_by_course_and_semester($1, $2)`, 
+            [parsedCourseId, parsedSemesterId]
+        );
+
+        if (result.rows.length === 0) {
+            console.warn("⚠ No subjects found.");
+            return res.status(404).json({ success: false, message: "No subjects found" });
+        }
 
         res.status(200).json({ success: true, subjects: result.rows });
+
     } catch (error) {
-        console.error("❌ Error fetching subjects:", error);
+        console.error("❌ API Error:", error);
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
-
-
 
 
 
@@ -156,33 +139,8 @@ router.get('/getsubjects/:courseId/:semesterId', async (req, res) => {
  * @swagger
  * /api/updatesubject/{subjectId}:
  *   put:
- *     summary: Update an existing subject
+ *     summary: Update an existing subject and reflect changes in student results
  *     description: Update subject details using the subject ID.
- *     parameters:
- *       - name: subjectId
- *         in: path
- *         required: true
- *         schema:
- *           type: integer
- *       - name: body
- *         in: body
- *         required: true
- *         schema:
- *           type: object
- *           properties:
- *             subjectName:
- *               type: string
- *             subjectCode:
- *               type: string
- *             subjectCredits:
- *               type: integer
- *             courseId:
- *               type: integer
- *             semesterId:
- *               type: integer
- *     responses:
- *       '200':
- *         description: Successfully updated subject
  */
 router.put('/updatesubject/:subject_id', async (req, res) => {
     try {
@@ -193,7 +151,6 @@ router.put('/updatesubject/:subject_id', async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid Subject ID" });
         }
 
-        // ✅ Fetch the existing subjectCode if not provided
         if (!subjectCode || subjectCode.trim() === '') {
             const existingSubject = await pool.query(
                 "SELECT subject_code FROM subjects WHERE subject_id = $1",
@@ -201,31 +158,24 @@ router.put('/updatesubject/:subject_id', async (req, res) => {
             );
 
             if (existingSubject.rows.length > 0) {
-                subjectCode = existingSubject.rows[0].subject_code; // ✅ Keep existing subjectCode
+                subjectCode = existingSubject.rows[0].subject_code; 
             } else {
                 return res.status(400).json({ success: false, message: "subjectCode is required" });
             }
         }
 
-        // ✅ Update subject without modifying subject_id or subject_code
-        await pool.query(
-            `UPDATE subjects SET 
-                course_id = $1, 
-                semester_id = $2, 
-                subject_name = $3, 
-                subject_code = $4, 
-                subject_credits = $5
-             WHERE subject_id = $6`,
-            [courseId, semesterId, subjectName, subjectCode, subjectCredits, subject_id]
-        );
+        // ✅ Call function to update subject and reflect in `student_results`
+        await pool.query(`SELECT public.update_subject($1, $2, $3, $4, $5, $6)`, 
+            [subject_id, courseId, semesterId, subjectName, subjectCode, subjectCredits]);
 
-        res.status(200).json({ success: true, message: "Subject updated successfully" });
+        res.status(200).json({ success: true, message: "Subject updated successfully, including student results." });
 
     } catch (error) {
         console.error("❌ Error updating subject:", error);
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
 
 /**
  * @swagger
@@ -243,38 +193,6 @@ router.put('/updatesubject/:subject_id', async (req, res) => {
  *     responses:
  *       200:
  *         description: Successfully retrieved subject details.
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 subject:
- *                   type: object
- *                   properties:
- *                     subject_id:
- *                       type: integer
- *                     subject_name:
- *                       type: string
- *                     subject_code:
- *                       type: string
- *                     subject_credits:
- *                       type: integer
- *                     course_id:
- *                       type: integer
- *                     course_name:
- *                       type: string
- *                     semester_id:
- *                       type: integer
- *                     semester_name:
- *                       type: string
- *                     created_at:
- *                       type: string
- *                       format: date-time
- *                     updated_at:
- *                       type: string
- *                       format: date-time
  *       400:
  *         description: Invalid request, missing or invalid subject_id
  *       404:
@@ -292,7 +210,7 @@ router.get('/getsubject/:subject_id', async (req, res) => {
 
         console.log(`📌 Fetching subject details for Subject ID: ${subject_id}`);
 
-        // Call the function directly
+        // Call the function
         const result = await pool.query(`SELECT * FROM get_subject_by_id($1)`, [subject_id]);
 
         if (result.rows.length === 0) {
@@ -311,29 +229,85 @@ router.get('/getsubject/:subject_id', async (req, res) => {
 
 
 
+
 /**
  * @swagger
  * /api/getsubjects/{courseId}:
  *   get:
- *     summary: Get subjects by course ID
- *     description: Fetch all subjects for a specific course and semester.
+ *     summary: Get subjects by Course ID
+ *     description: Fetch all subjects for a specific course. Pass 0 to fetch all subjects across all courses.
  *     parameters:
  *       - name: courseId
  *         in: path
  *         required: true
  *         schema:
  *           type: integer
+ *         description: "Course ID (0 for all subjects across all courses)"
  *     responses:
  *       200:
- *         description: Successfully fetched subjects
+ *         description: Successfully retrieved subjects.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 subjects:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       subject_id:
+ *                         type: integer
+ *                         example: 12
+ *                       subject_name:
+ *                         type: string
+ *                         example: "Computer Science Basics"
+ *                       subject_code:
+ *                         type: string
+ *                         example: "CS101"
+ *                       subject_credits:
+ *                         type: integer
+ *                         example: 4
+ *                       course_id:
+ *                         type: integer
+ *                         example: 2
+ *       400:
+ *         description: Invalid input (Non-numeric values).
+ *       500:
+ *         description: Internal Server Error.
  */
+
 router.get('/getsubjects/:courseId', async (req, res) => {
     try {
         const { courseId } = req.params;
-        const result = await pool.query(`SELECT * FROM subjects WHERE course_id = $1`, [courseId]);
+
+        // ✅ Debugging - Log received values
+        console.log("📩 Received Request for courseId:", courseId);
+
+        // ✅ Convert to number & validate input
+        const parsedCourseId = parseInt(courseId, 10);
+        if (isNaN(parsedCourseId)) {
+            console.error("🚨 Error: Received NaN for courseId");
+            return res.status(400).json({ success: false, message: "Invalid courseId. Must be an integer." });
+        }
+
+        // ✅ Query the `get_subjects_by_course` function
+        const result = await pool.query('SELECT * FROM get_subjects_by_course($1)', [parsedCourseId]);
+
+        // ✅ Handle Empty Results
+        if (result.rows.length === 0) {
+            console.warn("⚠ No subjects found.");
+            return res.status(200).json({ success: true, message: "No subjects found.", subjects: [] });
+        }
+
+        // ✅ Return successful response
         res.status(200).json({ success: true, subjects: result.rows });
+
     } catch (error) {
-        console.error("❌ API Error:", error);
+        console.error("❌ Error fetching subjects:", error);
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
@@ -411,26 +385,64 @@ router.get('/getsubjects/:course_id/:semester_id', async (req, res) => {
     }
 });
 
+
 /**
  * @swagger
  * /api/getsubjects/user/{username}:
  *   get:
  *     summary: Fetch subjects by student username
- *     description: Retrieves subjects based on username.
+ *     description: Retrieves subjects based on a given username.
  *     parameters:
  *       - name: username
  *         in: path
  *         required: true
  *         schema:
  *           type: string
- *         description: Student username
+ *         description: "Student's username"
  *     responses:
  *       '200':
- *         description: Successfully retrieved subjects
+ *         description: Successfully retrieved subjects.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 subjects:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       subject_id:
+ *                         type: integer
+ *                         example: 12
+ *                       subject_name:
+ *                         type: string
+ *                         example: "Computer Science Basics"
+ *                       subject_code:
+ *                         type: string
+ *                         example: "CS101"
+ *                       subject_credits:
+ *                         type: integer
+ *                         example: 4
+ *                       course_id:
+ *                         type: integer
+ *                         example: 2
+ *                       course_name:
+ *                         type: string
+ *                         example: "Computer Science"
+ *                       semester_id:
+ *                         type: integer
+ *                         example: 1
+ *                       semester_name:
+ *                         type: string
+ *                         example: "First Semester"
  *       '400':
- *         description: Invalid input format
+ *         description: Invalid input format (Non-string or missing values)
  *       '404':
- *         description: No subjects found
+ *         description: No subjects found for the provided username
  *       '500':
  *         description: Internal Server Error
  */
@@ -441,27 +453,27 @@ router.get('/getsubjects/user/:username', async (req, res) => {
 
         // ✅ Debugging logs
         console.log("📩 Received API Request for username:", username);
-        console.log("🛠 Type of username:", typeof username);
 
-        // ✅ Validate input
-        if (!username || typeof username !== 'string') {
-            return res.status(400).json({ success: false, message: "Invalid username format" });
+        // ✅ Validate input (Ensure it's a non-empty string)
+        if (!username || typeof username !== 'string' || username.trim() === '') {
+            console.error("🚨 Error: Invalid username format");
+            return res.status(400).json({ success: false, message: "Invalid username format. Must be a non-empty string." });
         }
 
-        // ✅ Query database
-        const result = await pool.query(
-            `SELECT * FROM public.get_subjects_by_username($1)`, 
-            [username]
-        );
+        // ✅ Query the `get_subjects_by_username` function
+        const result = await pool.query(`SELECT * FROM public.get_subjects_by_username($1)`, [username.trim()]);
 
+        // ✅ Handle Empty Results
         if (result.rows.length === 0) {
+            console.warn("⚠ No subjects found for the provided username.");
             return res.status(404).json({ success: false, message: "No subjects found for the given username" });
         }
 
+        // ✅ Return successful response
         res.status(200).json({ success: true, subjects: result.rows });
 
     } catch (error) {
-        console.error("❌ API Error:", error);
+        console.error("❌ Error fetching subjects by username:", error);
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
@@ -479,20 +491,20 @@ router.get('/getsubjects/user/:username', async (req, res) => {
  *         required: true
  *         schema:
  *           type: string
- *         description: Student username
+ *         description: "Student's username"
  *       - name: courseId
  *         in: path
  *         required: true
  *         schema:
  *           type: integer
- *         description: Course ID
+ *         description: "Course ID (0 to fetch all courses)"
  *     responses:
  *       '200':
- *         description: Successfully retrieved subjects
+ *         description: Successfully retrieved subjects.
  *       '400':
- *         description: Invalid input format
+ *         description: Invalid input format (Non-numeric values)
  *       '404':
- *         description: No subjects found
+ *         description: No subjects found for the given username and course ID
  *       '500':
  *         description: Internal Server Error
  */
@@ -505,7 +517,7 @@ router.get('/getsubjects/user/:username/:courseId', async (req, res) => {
         console.log("📩 Received API Request:");
         console.log("Username:", username, "Course ID:", courseId);
 
-        // ✅ Validate inputs
+        // ✅ Convert and validate input
         const parsedCourseId = parseInt(courseId, 10);
         if (!username || typeof username !== 'string' || isNaN(parsedCourseId)) {
             return res.status(400).json({ success: false, message: "Invalid username or course ID format" });
@@ -514,11 +526,12 @@ router.get('/getsubjects/user/:username/:courseId', async (req, res) => {
         // ✅ Query database
         const result = await pool.query(
             `SELECT * FROM public.get_subjects_by_username_course($1, $2)`, 
-            [username, parsedCourseId]
+            [username.trim(), parsedCourseId]
         );
 
         if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, message: "No subjects found for the given username and course ID" });
+            console.warn("⚠ No subjects found for the given username and course ID.");
+            return res.status(404).json({ success: false, message: "No subjects found" });
         }
 
         res.status(200).json({ success: true, subjects: result.rows });
@@ -542,26 +555,26 @@ router.get('/getsubjects/user/:username/:courseId', async (req, res) => {
  *         required: true
  *         schema:
  *           type: string
- *         description: Student username
+ *         description: "Student username"
  *       - name: courseId
  *         in: path
  *         required: true
  *         schema:
  *           type: integer
- *         description: Course ID
+ *         description: "Course ID (0 to fetch all courses)"
  *       - name: semesterId
  *         in: path
  *         required: true
  *         schema:
  *           type: integer
- *         description: Semester ID
+ *         description: "Semester ID (0 to fetch all semesters)"
  *     responses:
  *       '200':
- *         description: Successfully retrieved subjects
+ *         description: Successfully retrieved subjects.
  *       '400':
- *         description: Invalid input format
+ *         description: Invalid input format (Non-numeric values)
  *       '404':
- *         description: No subjects found
+ *         description: No subjects found for the given username, course ID, or semester ID
  *       '500':
  *         description: Internal Server Error
  */
@@ -569,34 +582,38 @@ router.get('/getsubjects/user/:username/:courseId', async (req, res) => {
 router.get('/getsubjects/user/:username/:courseId/:semesterId', async (req, res) => {
     try {
         const { username, courseId, semesterId } = req.params;
-        console.log("📩 Received API Request:", username, courseId, semesterId);
 
-        // Convert to integers
+        // ✅ Debugging logs
+        console.log("📩 Received API Request:");
+        console.log("Username:", username.trim(), "Course ID:", courseId, "Semester ID:", semesterId);
+
+        // ✅ Convert and validate input
         const parsedCourseId = parseInt(courseId, 10);
         const parsedSemesterId = parseInt(semesterId, 10);
 
-        // Validate inputs
-        if (!username || typeof username !== 'string' || isNaN(parsedCourseId) || isNaN(parsedSemesterId)) {
+        if (!username.trim() || typeof username !== 'string' || isNaN(parsedCourseId) || isNaN(parsedSemesterId)) {
             return res.status(400).json({ success: false, message: "Invalid username, course ID, or semester ID format" });
         }
 
-        // Fetch subjects from PostgreSQL
+        // ✅ Query database
         const result = await pool.query(
             `SELECT * FROM public.get_subjects_by_username_course_semester($1, $2, $3)`, 
-            [username, parsedCourseId, parsedSemesterId]
+            [username.trim(), parsedCourseId, parsedSemesterId]
         );
 
-        // Check if subjects exist
         if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, message: "No subjects found for the given filters" });
+            console.warn("⚠ No subjects found for the given username, course ID, or semester ID.");
+            return res.status(404).json({ success: false, message: "No subjects found" });
         }
 
         res.status(200).json({ success: true, subjects: result.rows });
+
     } catch (error) {
         console.error("❌ API Error:", error);
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
 
 
 /**

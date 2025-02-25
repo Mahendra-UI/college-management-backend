@@ -160,7 +160,7 @@ router.get('/getstudentresult/:result_id', async (req, res) => {
  */
 router.get('/getstudentresults', async (req, res) => {
     try {
-        const result = await pool.query(`SELECT * FROM get_all_student_results() ORDER BY result_id ASC`); // ✅ Ensuring order here
+        const result = await pool.query(`SELECT * FROM get_all_student_results()`);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: "No results found." });
@@ -173,6 +173,7 @@ router.get('/getstudentresults', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
 
 
 /**
@@ -203,6 +204,7 @@ router.get('/getstudentresult/:result_id', async (req, res) => {
 });
 
 
+
 /**
  * @swagger
  * /api/getStudentResults/{username}/{semesterId}:
@@ -230,33 +232,41 @@ router.get('/getstudentresult/:result_id', async (req, res) => {
  *       500:
  *         description: Internal Server Error.
  */
+
+
 router.get('/getStudentResults/:username/:semesterId', async (req, res) => {
     try {
         const { username, semesterId } = req.params;
 
+        // ✅ Validate Input
         if (!username || isNaN(semesterId)) {
             return res.status(400).json({ success: false, message: "Invalid username or semesterId" });
         }
 
         console.log(`🔍 Fetching results for Username: ${username}, Semester: ${semesterId}`);
 
+        // ✅ Query Student Results
         const results = await pool.query(
             `SELECT * FROM get_student_results_by_username_semester($1, $2)`, 
-            [username, semesterId]
+            [username.trim(), parseInt(semesterId)]
         );
 
-        if (results.rows.length > 0) {
-            console.log("✅ Results Found:", results.rows);
-            res.status(200).json({ success: true, results: results.rows });
-        } else {
+        // ✅ If no results, return an empty list instead of 404
+        if (results.rows.length === 0) {
             console.warn("⚠ No results found for this semester.");
-            res.status(404).json({ success: false, message: "No results found for this semester." });
+            return res.status(200).json({ success: true, results: [] });  // ✅ Return empty list
         }
+
+        console.log("✅ Results Found:", results.rows);
+        res.status(200).json({ success: true, results: results.rows });
+
     } catch (error) {
         console.error("❌ Error fetching student results:", error);
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
+
 
 
 /**
@@ -397,7 +407,5 @@ router.get('/getstudentresultsbyusername/:username', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
-
-
 
 module.exports = router;

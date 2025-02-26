@@ -408,4 +408,198 @@ router.get('/getstudentresultsbyusername/:username', async (req, res) => {
     }
 });
 
+
+
+/**
+ * @swagger
+ * /api/updatestudentcgpa:
+ *   put:
+ *     summary: Update student's CGPA
+ *     tags: [Student Results]
+ *     description: Updates the CGPA of a student using their username.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               username:
+ *                 type: string
+ *               cgpa:
+ *                 type: number
+ *                 format: float
+ *                 example: 8.75
+ *     responses:
+ *       200:
+ *         description: Successfully updated CGPA.
+ *       400:
+ *         description: Bad request (missing username or CGPA).
+ *       500:
+ *         description: Internal Server Error.
+ */
+router.put('/updatestudentcgpa', async (req, res) => {
+    try {
+        const { username, cgpa } = req.body;
+
+        if (!username || cgpa === undefined) {
+            return res.status(400).json({ success: false, message: "Username and CGPA are required" });
+        }
+
+        const result = await pool.query(
+            "UPDATE students SET cgpa = $1, updated_at = NOW() WHERE username = $2 RETURNING *",
+            [cgpa, username]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: "Student not found" });
+        }
+
+        res.status(200).json({ success: true, message: "CGPA updated successfully", student: result.rows[0] });
+
+    } catch (error) {
+        console.error("❌ Error updating CGPA:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+/**
+ * @swagger
+ * /api/updatestudentcgpa:
+ *   put:
+ *     tags: [Student Results]
+ *     summary: Update CGPA for a student
+ *     description: Updates the CGPA of a student identified by their username.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               username:
+ *                 type: string
+ *               cgpa:
+ *                 type: number
+ *                 format: float
+ *                 example: 8.75
+ *     responses:
+ *       '200':
+ *         description: Successfully updated CGPA.
+ *       '400':
+ *         description: Missing username or CGPA.
+ *       '500':
+ *         description: Internal Server Error.
+ */
+router.put('/updatestudentcgpa', async (req, res) => {
+    try {
+        const { username, cgpa } = req.body;
+
+        if (!username || cgpa === undefined) {
+            return res.status(400).json({ success: false, message: "Username and CGPA are required" });
+        }
+
+        // ✅ Update CGPA in Database
+        const result = await pool.query('UPDATE students SET cgpa = $1, updated_at = NOW() WHERE username = $2 RETURNING *', [cgpa, username]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: "Student not found" });
+        }
+
+        res.status(200).json({ success: true, message: "CGPA updated successfully", student: result.rows[0] });
+    } catch (error) {
+        console.error('❌ Error updating CGPA:', error);
+        res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
+    }
+});
+
+
+
+
+/**
+ * @swagger
+ * /api/getcgpa/{username}:
+ *   get:
+ *     summary: Fetch CGPA of a student
+ *     tags: [Student Results]
+ *     description: Retrieve the CGPA of a student using their username.
+ *     parameters:
+ *       - name: username
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "The student's username."
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved CGPA.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 cgpa:
+ *                   type: number
+ *                   format: float
+ *                   example: 8.75
+ *       400:
+ *         description: Invalid username provided.
+ *       404:
+ *         description: CGPA not found for the given username.
+ *       500:
+ *         description: Internal Server Error.
+ */
+router.get('/getcgpa/:username', async (req, res) => {
+    try {
+        const { username } = req.params;
+
+        if (!username) {
+            return res.status(400).json({ success: false, message: "Invalid username" });
+        }
+
+        const result = await pool.query("SELECT get_student_cgpa($1)", [username]);
+
+        if (result.rows.length === 0 || result.rows[0].get_student_cgpa === null) {
+            return res.status(404).json({ success: false, message: "CGPA not found for this student" });
+        }
+
+        res.status(200).json({ success: true, cgpa: result.rows[0].get_student_cgpa });
+
+    } catch (error) {
+        console.error("❌ Error fetching CGPA:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+/**
+ * @swagger
+ * /api/getallcgpa:
+ *   get:
+ *     summary: Fetch CGPA of all students
+ *     tags: [Student CGPA]
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved all students' CGPA.
+ */
+router.get('/getallcgpa', async (req, res) => {
+    try {
+        const result = await pool.query("SELECT * FROM get_all_students_cgpa()");
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "No CGPA records found." });
+        }
+
+        res.status(200).json({ success: true, students: result.rows });
+    } catch (error) {
+        console.error("❌ Error fetching CGPA records:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+
 module.exports = router;

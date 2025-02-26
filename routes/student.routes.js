@@ -279,6 +279,100 @@ router.get('/getstudentsbyacademiccourseyearid', async (req, res) => {
 
 /**
  * @swagger
+ * /api/getstudentsbyusername/{username}:
+ *   get:
+ *     summary: Fetch student details by username
+ *     description: Retrieves detailed student information based on username.
+ *     parameters:
+ *       - name: username
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       '200':
+ *         description: Successfully retrieved student details
+ *       '400':
+ *         description: Invalid request (missing username).
+ *       '404':
+ *         description: Student not found.
+ *       '500':
+ *         description: Internal server error.
+ */
+router.get('/getstudentsbyusername/:username', async (req, res) => {
+    try {
+        const { username } = req.params;
+
+        if (!username) {
+            return res.status(400).json({ success: false, message: "Username is required" });
+        }
+
+        // ✅ Query Database Function
+        const result = await pool.query('SELECT * FROM public.get_students_by_username($1)', [username]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "Student not found" });
+        }
+
+        // ✅ Send the complete student data in response
+        res.status(200).json({ success: true, student: result.rows[0] });
+    } catch (error) {
+        console.error('❌ Error fetching student:', error);
+        res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
+    }
+});
+
+
+/**
+ * @swagger
+ * /api/getstudentsbyusername/{username}:
+ *   get:
+ *     tags:
+ *       - Student Management
+ *     summary: Fetch student details by username
+ *     description: Retrieves student details, including CGPA.
+ *     parameters:
+ *       - name: username
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The username of the student.
+ *     responses:
+ *       '200':
+ *         description: Successfully retrieved student details.
+ *       '404':
+ *         description: Student not found.
+ *       '500':
+ *         description: Internal Server Error.
+ */
+router.get('/getstudentsbyusername/:username', async (req, res) => {
+  try {
+      const { username } = req.params;
+
+      if (!username) {
+          return res.status(400).json({ success: false, message: "Username is required" });
+      }
+
+      // ✅ Query Database Function
+      const result = await pool.query('SELECT * FROM public.get_students_by_username($1)', [username]);
+
+      if (result.rows.length === 0) {
+          return res.status(404).json({ success: false, message: "Student not found" });
+      }
+
+      res.status(200).json({ success: true, student: result.rows[0] });
+  } catch (error) {
+      console.error('❌ Error fetching student:', error);
+      res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
+  }
+});
+
+
+
+
+/**
+ * @swagger
  * /api/checkduplicate:
  *   get:
  *     summary: Check for duplicate email or mobile number
@@ -314,45 +408,7 @@ router.get('/checkduplicate', async (req, res) => {
   });
   
   
-  /**
- * @swagger
- * /api/getstudentsbyusername/{username}:
- *   get:
- *     summary: Fetch student details by username
- *     description: Retrieves detailed student information based on username.
- *     parameters:
- *       - name: username
- *         in: path
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       '200':
- *         description: Successfully retrieved student details
- */
-router.get('/getstudentsbyusername/:username', async (req, res) => {
-    try {
-        const { username } = req.params;
-  
-        if (!username) {
-            return res.status(400).json({ success: false, message: "Username is required" });
-        }
-  
-        // ✅ Query Database Function
-        const result = await pool.query('SELECT * FROM public.get_students_by_username($1)', [username]);
-  
-        if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, message: "Student not found" });
-        }
-  
-        // ✅ Send the complete student data in response
-        res.status(200).json({ success: true, student: result.rows[0] });
-    } catch (error) {
-        console.error('❌ Error fetching student:', error);
-        res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
-    }
-  });
-  
+
 
 
 /**

@@ -13,6 +13,7 @@ const notificationsRoutes = require('./routes/notifications.routes');
 const feeledgerRoutes = require('./routes/feeledger.routes');
 const studentPromotionRoutes = require('./routes/studentpromotion.routes');
 const hostelRoutes = require('./routes/hostel.routes');
+const roomsRoutes = require('./routes/rooms.routes');
 
 
 
@@ -58,6 +59,8 @@ app.use('/api', notificationsRoutes);
 app.use('/api', feeledgerRoutes);
 app.use('/api', studentPromotionRoutes);
 app.use('/api', hostelRoutes);
+app.use('/api', roomsRoutes);
+
 
 
 // ✅ Start Server

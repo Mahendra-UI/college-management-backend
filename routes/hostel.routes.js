@@ -237,21 +237,24 @@ router.delete('/hostels/:hostel_id', async (req, res) => {
  *       500:
  *         description: Internal Server Error.
  */
-
 router.post('/blocks', async (req, res) => {
     try {
         const { block_name, hostel_id } = req.body;
 
-        // Validation: Ensure required fields exist
+        // ✅ Validation: Ensure required fields exist
         if (!block_name || !hostel_id) {
             return res.status(400).json({ success: false, message: "block_name and hostel_id are required" });
         }
 
-        // Call the PostgreSQL function
+        // ✅ Call the PostgreSQL function
         const result = await pool.query(
             'SELECT * FROM public.insert_blocks($1, $2);',
             [block_name, parseInt(hostel_id, 10)]
         );
+
+        if (result.rows.length === 0) {
+            return res.status(500).json({ success: false, message: "Failed to add block" });
+        }
 
         res.status(201).json({ success: true, message: "Block added successfully", block: result.rows[0] });
     } catch (error) {
@@ -259,6 +262,7 @@ router.post('/blocks', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
 
 
 /**

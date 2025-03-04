@@ -291,5 +291,164 @@ router.get('/rooms', async (req, res) => {
 });
 
 
+/**
+ * @swagger
+ * /api/getAvailableRooms:
+ *   get:
+ *     summary: Get available rooms
+ *     tags: [Room Management]
+ *     responses:
+ *       200:
+ *         description: List of available rooms
+ *       500:
+ *         description: Internal Server Error
+ */
+router.get('/getAvailableRooms', async (req, res) => {
+    try {
+        const result = await pool.query("SELECT * FROM get_available_rooms();");
+        res.status(200).json({ success: true, rooms: result.rows });
+    } catch (error) {
+        console.error("API Error:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+
+/**
+ * @swagger
+ * /api/allocateStudentsToRooms:
+ *   post:
+ *     summary: Allocate multiple students to rooms
+ *     tags: [Room Management]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               allocations:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     student_id:
+ *                       type: integer
+ *                     username:
+ *                       type: string
+ *                     full_name:
+ *                       type: string
+ *                     room_id:
+ *                       type: integer
+ *     responses:
+ *       200:
+ *         description: Students allocated successfully
+ *       500:
+ *         description: Internal Server Error
+ */
+
+router.post('/allocateStudentsToRooms', async (req, res) => {
+    try {
+        const allocations = req.body.allocations;
+
+        if (!allocations || allocations.length === 0) {
+            return res.status(400).json({ success: false, message: "Allocations data is required" });
+        }
+
+        for (const allocation of allocations) {
+            await pool.query(
+                "SELECT allocate_student_to_room($1::INTEGER, $2::VARCHAR, $3::VARCHAR, $4::INTEGER);",
+                [allocation.student_id, allocation.username, allocation.full_name, allocation.room_id]
+            );
+        }
+
+        res.status(200).json({ success: true, message: "Students allocated successfully" });
+    } catch (error) {
+        console.error("API Error:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+/**
+ * @swagger
+ * /api/getAllocatedRooms:
+ *   get:
+ *     summary: Fetch allocated rooms
+ *     tags: [Room Management]
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved allocated rooms
+ *       500:
+ *         description: Internal Server Error
+ */
+router.get('/getAllocatedRooms', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM public.get_allocated_rooms();');
+
+        // ✅ Return 200 OK with an empty array instead of 404
+        res.status(200).json({ 
+            success: true, 
+            allocatedRooms: result.rows 
+        });
+
+    } catch (error) {
+        console.error("❌ API Error:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+/**
+ * @swagger
+ * /api/rooms/hostel/{hostelId}/block/{blockId}/floor/{floorId}:
+ *   get:
+ *     summary: Fetch available rooms by hostel, block, and floor
+ *     tags: [Room Management]
+ *     parameters:
+ *       - in: path
+ *         name: hostelId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: blockId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: floorId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved rooms
+ *       500:
+ *         description: Internal Server Error
+ */
+router.get('/rooms/hostel/:hostelId/block/:blockId/floor/:floorId', async (req, res) => {
+    try {
+        const { hostelId, blockId, floorId } = req.params;
+        console.log(`Fetching rooms for hostel ${hostelId}, block ${blockId}, floor ${floorId}`);
+
+        const result = await pool.query(
+            "SELECT * FROM get_rooms_by_hostel_block_floor($1, $2, $3);",
+            [parseInt(hostelId), parseInt(blockId), parseInt(floorId)]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "No rooms found" });
+        }
+
+        res.status(200).json({ success: true, rooms: result.rows });
+    } catch (error) {
+        console.error("API Error:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
 
 module.exports = router;

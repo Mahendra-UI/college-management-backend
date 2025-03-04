@@ -254,26 +254,21 @@ router.get('/getacademiccourseyears', async (req, res) => {
  */
 
 router.get('/getstudentsbyacademiccourseyearid', async (req, res) => {
-  try {
-      const academicCourseYearId = req.query.academic_course_year_id ? parseInt(req.query.academic_course_year_id) : null;
-
-      if (academicCourseYearId === null) {
-          return res.status(200).json({ success: true, students: [] }); // Return empty result
-      }
-
-      const result = await pool.query("SELECT * FROM get_students_by_academic_course_year_id($1)", [academicCourseYearId]);
-
-      if (result.rows.length === 0) {
-          return res.status(404).json({ success: false, message: "No students found" });
-      }
-
-      res.status(200).json({ success: true, students: result.rows });
-
-  } catch (error) {
-      console.error("❌ Error fetching students:", error);
-      res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
-  }
-});
+    try {
+        // Validate and Parse Input
+        const academicCourseYearId = req.query.academic_course_year_id ? parseInt(req.query.academic_course_year_id) : 0;
+  
+        // Query the database
+        const result = await pool.query("SELECT * FROM get_students_by_academic_course_year_id($1)", [academicCourseYearId]);
+  
+        res.status(200).json({ success: true, students: result.rows });
+  
+    } catch (error) {
+        console.error("❌ Error fetching students:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+  });
+  
 
 
 

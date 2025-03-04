@@ -303,6 +303,7 @@ router.get('/rooms', async (req, res) => {
  *       500:
  *         description: Internal Server Error
  */
+
 router.get('/getAvailableRooms', async (req, res) => {
     try {
         const result = await pool.query("SELECT * FROM get_available_rooms();");
@@ -312,6 +313,17 @@ router.get('/getAvailableRooms', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
+
+// router.get('/getAvailableRooms', async (req, res) => {
+//     try {
+//         const result = await pool.query("SELECT * FROM get_available_rooms();");
+//         res.status(200).json({ success: true, rooms: result.rows });
+//     } catch (error) {
+//         console.error("API Error:", error);
+//         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+//     }
+// });
 
 
 
@@ -357,18 +369,57 @@ router.post('/allocateStudentsToRooms', async (req, res) => {
         }
 
         for (const allocation of allocations) {
-            await pool.query(
-                "SELECT allocate_student_to_room($1::INTEGER, $2::VARCHAR, $3::VARCHAR, $4::INTEGER);",
-                [allocation.student_id, allocation.username, allocation.full_name, allocation.room_id]
+            const { student_id, room_id, username, full_name, academic_course_year_id } = allocation;
+
+            // ✅ Validate required fields
+            if (!student_id || !room_id || !academic_course_year_id || !username || !full_name) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: "Missing required fields: student_id, room_id, academic_course_year_id, username, full_name" 
+                });
+            }
+
+            // ✅ Check if the student is already allocated in the same academic course year
+            const checkExisting = await pool.query(
+                "SELECT room_id FROM student_room_allocations WHERE student_id = $1 AND academic_course_year_id = $2",
+                [student_id, academic_course_year_id]
+            );
+
+            if (checkExisting.rows.length > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: `❌ Student '${full_name}' is already allocated to room '${checkExisting.rows[0].room_id}' in the same academic year!`
+                });
+            }
+
+            // ✅ Check available seats (using `rooms` instead of `room_availability`)
+            const roomCheck = await pool.query(
+                `SELECT r.seats - COALESCE((SELECT COUNT(*) FROM student_room_allocations sra WHERE sra.room_id = r.room_id), 0) AS available_seats 
+                FROM rooms r WHERE r.room_id = $1`, 
+                [room_id]
+            );
+
+            if (roomCheck.rows.length === 0) {
+                return res.status(404).json({ success: false, message: "🚫 Room not found." });
+            }
+
+            if (roomCheck.rows[0].available_seats <= 0) {
+                return res.status(400).json({ success: false, message: `🚫 Room '${room_id}' is full. No available seats.` });
+            }
+
+            // ✅ Allocate Student to Room
+            await pool.query("SELECT allocate_student_to_room($1, $2, $3, $4, $5);", 
+                [student_id, username, full_name, room_id, academic_course_year_id]
             );
         }
 
-        res.status(200).json({ success: true, message: "Students allocated successfully" });
+        res.status(200).json({ success: true, message: "✅ Students allocated successfully!" });
     } catch (error) {
-        console.error("API Error:", error);
+        console.error("❌ API Error:", error);
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
 
 
 /**

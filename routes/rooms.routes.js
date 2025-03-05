@@ -434,11 +434,21 @@ router.post('/allocateStudentsToRooms', async (req, res) => {
  *       500:
  *         description: Internal Server Error
  */
+
 router.get('/getAllocatedRooms', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM public.get_allocated_rooms();');
+        const { username } = req.query; // ✅ Get username from query params
 
-        // ✅ Return 200 OK with an empty array instead of 404
+        let query = 'SELECT * FROM public.get_allocated_rooms()';
+        let values = [];
+
+        if (username) {
+            query += ' WHERE username = $1';
+            values.push(username);
+        }
+
+        const result = await pool.query(query, values);
+
         res.status(200).json({ 
             success: true, 
             allocatedRooms: result.rows 
@@ -449,6 +459,24 @@ router.get('/getAllocatedRooms', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
+
+
+// router.get('/getAllocatedRooms', async (req, res) => {
+//     try {
+//         const result = await pool.query('SELECT * FROM public.get_allocated_rooms();');
+
+//         // ✅ Return 200 OK with an empty array instead of 404
+//         res.status(200).json({ 
+//             success: true, 
+//             allocatedRooms: result.rows 
+//         });
+
+//     } catch (error) {
+//         console.error("❌ API Error:", error);
+//         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+//     }
+// });
 
 
 /**

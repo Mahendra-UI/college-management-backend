@@ -46,18 +46,21 @@ router.post('/login', async (req, res) => {
         let query, params;
 
         if (userType === "Student") {
-            // ✅ Student Login from `login` table
-            query = `SELECT l.username, l.password, l.full_name, l.user_type, 
-                            s.course_name, s.course_id 
-                     FROM login l 
-                     LEFT JOIN students s ON l.username = s.username
-                     WHERE l.username = $1 AND l.user_type = 'Student'`;
+            // ✅ Fetch student details including student_id
+            query = `
+                SELECT l.username, l.password, l.full_name, l.user_type, 
+                       s.student_id, s.course_name, s.course_id, 
+                       s.academic_course_year_id, s.academic_course_year_name
+                FROM login l 
+                LEFT JOIN students s ON l.username = s.username
+                WHERE l.username = $1 AND l.user_type = 'Student'`;
             params = [username];
         } else {
-            // ✅ Management Login from `management_login` table
-            query = `SELECT username, password, full_name, user_type, email_id, mobile_no 
-                     FROM management_login 
-                     WHERE username = $1 AND user_type = $2`;
+            // ✅ Fetch management login details
+            query = `
+                SELECT username, password, full_name, user_type, email_id, mobile_no 
+                FROM management_login 
+                WHERE username = $1 AND user_type = $2`;
             params = [username, userType];
         }
 
@@ -71,17 +74,21 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ success: false, message: "⚠️ Incorrect password" });
         }
 
+        // ✅ Prepare response payload
         const responsePayload = {
             success: true,
             message: `${userType} login successful`,
             userType: result.rows[0].user_type,
             full_name: result.rows[0].full_name || "User",
-            username: result.rows[0].username
+            username: result.rows[0].username,
+            student_id: result.rows[0].student_id || null,  // ✅ Include student_id
         };
 
         if (userType === "Student") {
             responsePayload.course_name = result.rows[0].course_name || null;
             responsePayload.courseId = result.rows[0].course_id || null;
+            responsePayload.academic_course_year_id = result.rows[0].academic_course_year_id || null;
+            responsePayload.academic_course_year_name = result.rows[0].academic_course_year_name || null;
         } else {
             responsePayload.email = result.rows[0].email_id || null;
             responsePayload.mobile = result.rows[0].mobile_no || null;

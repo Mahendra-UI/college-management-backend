@@ -360,63 +360,93 @@ router.get('/getAvailableRooms', async (req, res) => {
  *         description: Internal Server Error
  */
 
-router.post('/allocateStudentsToRooms', async (req, res) => {
-    try {
-        const allocations = req.body.allocations;
 
+router.post('/allocateStudentsToRooms', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN'); // 🔹 Start transaction
+
+        const allocations = req.body.allocations;
         if (!allocations || allocations.length === 0) {
-            return res.status(400).json({ success: false, message: "Allocations data is required" });
+            await client.query('ROLLBACK');
+            return res.status(400).json({ success: false, message: "❌ Allocations data is required." });
         }
 
-        for (const allocation of allocations) {
-            const { student_id, room_id, username, full_name, academic_course_year_id } = allocation;
+        let alreadyAllocatedStudents = [];
+        let unavailableRooms = [];
 
-            // ✅ Validate required fields
+        for (const allocation of allocations) {
+            const { student_id, room_id, username, full_name, academic_course_year_id, request_id, requested_by } = allocation;
+
             if (!student_id || !room_id || !academic_course_year_id || !username || !full_name) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: "Missing required fields: student_id, room_id, academic_course_year_id, username, full_name" 
-                });
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: "❌ Missing required fields." });
             }
 
-            // ✅ Check if the student is already allocated in the same academic course year
-            const checkExisting = await pool.query(
+            // ✅ Check if the student already has an allocation in the same academic year
+            const checkExisting = await client.query(
                 "SELECT room_id FROM student_room_allocations WHERE student_id = $1 AND academic_course_year_id = $2",
                 [student_id, academic_course_year_id]
             );
 
             if (checkExisting.rows.length > 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: `❌ Student '${full_name}' is already allocated to room '${checkExisting.rows[0].room_id}' in the same academic year!`
-                });
+                alreadyAllocatedStudents.push(full_name);
+                continue; // Skip allocation for this student
             }
 
-            // ✅ Check available seats (using `rooms` instead of `room_availability`)
-            const roomCheck = await pool.query(
-                `SELECT r.seats - COALESCE((SELECT COUNT(*) FROM student_room_allocations sra WHERE sra.room_id = r.room_id), 0) AS available_seats 
-                FROM rooms r WHERE r.room_id = $1`, 
+            // ✅ Check room availability before allocation
+            const roomCheck = await client.query(
+                "SELECT available_seats, room_name FROM room_availability WHERE room_id = $1",
                 [room_id]
             );
 
             if (roomCheck.rows.length === 0) {
-                return res.status(404).json({ success: false, message: "🚫 Room not found." });
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: `🚫 Room '${room_id}' not found.` });
             }
 
-            if (roomCheck.rows[0].available_seats <= 0) {
-                return res.status(400).json({ success: false, message: `🚫 Room '${room_id}' is full. No available seats.` });
+            let availableSeats = roomCheck.rows[0].available_seats;
+            let roomName = roomCheck.rows[0].room_name;
+
+            if (availableSeats <= 0) {
+                unavailableRooms.push(`${roomName} (Room ID: ${room_id})`);
+                continue; // Skip allocation for this room
             }
 
-            // ✅ Allocate Student to Room
-            await pool.query("SELECT allocate_student_to_room($1, $2, $3, $4, $5);", 
-                [student_id, username, full_name, room_id, academic_course_year_id]
+            // ✅ Allocate Student
+            await client.query(
+                "SELECT allocate_student_to_room($1, $2, $3, $4, $5, $6, $7);",
+                [student_id, username, full_name, room_id, academic_course_year_id, request_id || null, requested_by || 'Hostel Admin']
             );
         }
 
+        // ✅ If any students were already allocated, return a detailed message
+        if (alreadyAllocatedStudents.length > 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                success: false,
+                message: `❌ One or more students already have an allocated room for this academic year: ${alreadyAllocatedStudents.join(", ")}`
+            });
+        }
+
+        // ✅ If any rooms were unavailable, return a proper error message
+        if (unavailableRooms.length > 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                success: false,
+                message: `🚫 The following rooms are already full: ${unavailableRooms.join(", ")}`
+            });
+        }
+
+        await client.query('COMMIT'); // ✅ Ensure transaction commits properly
         res.status(200).json({ success: true, message: "✅ Students allocated successfully!" });
+
     } catch (error) {
+        await client.query('ROLLBACK'); // Rollback on error
         console.error("❌ API Error:", error);
-        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+        res.status(500).json({ success: false, message: "🚫 Internal Server Error. Please try again later.", error: error.message });
+    } finally {
+        client.release();
     }
 });
 
@@ -567,61 +597,41 @@ router.get('/rooms/hostel/:hostelId/block/:blockId/floor/:floorId', async (req, 
  */
 
 router.post('/requestRoom', async (req, res) => {
+    const client = await pool.connect();
     try {
         const { username, academic_course_year_id, selected_students } = req.body;
 
         if (!username || !academic_course_year_id || !selected_students.length) {
-            return res.status(400).json({ success: false, message: "Username, academic year, and students are required" });
+            return res.status(400).json({ success: false, message: "❌ Username, academic year, and students are required." });
         }
 
-        // ✅ Fetch usernames for selected students
-        const studentUsernames = await pool.query(
-            `SELECT username FROM students WHERE student_id = ANY($1)`,
-            [selected_students]
+        await client.query('BEGIN'); // Start transaction
+
+        // ✅ Call PostgreSQL function
+        const result = await client.query(
+            "SELECT * FROM request_room($1, $2, $3::jsonb);",
+            [username, academic_course_year_id, JSON.stringify(selected_students)]
         );
 
-        const requestedForUsernames = studentUsernames.rows.map(row => row.username);
-
-        // ✅ Ensure arrays are correctly formatted
-        const selectedStudentsArray = Array.isArray(selected_students) ? selected_students : [];
-        const requestedForUsernamesArray = Array.isArray(requestedForUsernames) ? requestedForUsernames : [];
-
-        // ✅ Check for duplicate requests
-        const checkExisting = await pool.query(
-            `SELECT * FROM room_requests 
-             WHERE academic_course_year_id = $1 
-             AND requested_for @> $2::jsonb
-             AND status IN ('Pending', 'Approved', 'Allocated')`,
-            [academic_course_year_id, JSON.stringify(requestedForUsernamesArray)]
-        );
-
-        if (checkExisting.rows.length > 0) {
-            return res.status(400).json({
-                success: false,
-                message: "❌ One or more students already have a pending, approved, or allocated room request for this academic year."
-            });
-        }
-
-        // ✅ Insert new request with JSONB
-        const result = await pool.query(
-            `INSERT INTO room_requests (username, academic_course_year_id, selected_students, requested_by, requested_for, status, requested_at) 
-             VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, 'Pending', NOW()) RETURNING request_id;`,
-            [username, academic_course_year_id, JSON.stringify(selectedStudentsArray), username, JSON.stringify(requestedForUsernamesArray)]
-        );
-
-        res.status(201).json({ success: true, request_id: result.rows[0].request_id });
+        await client.query('COMMIT'); // Commit transaction
+        res.status(201).json({ success: true, request_id: result.rows[0].new_request_id, status: result.rows[0].request_status });
 
     } catch (error) {
+        await client.query('ROLLBACK'); // Rollback transaction on error
         console.error("❌ Request Room API Error:", error);
 
-        if (error.code === '23505') {
-            return res.status(400).json({
-                success: false,
-                message: "❌ Duplicate request detected. You already have an active request for this academic year."
-            });
+        // ✅ Handle duplicate request error from PostgreSQL
+        if (error.message.includes('❌ You already have a pending, approved, or allocated room request')) {
+            return res.status(400).json({ success: false, message: error.message });
         }
 
-        res.status(500).json({ success: false, message: "Internal Server Error" });
+        if (error.message.includes('❌ You are already allocated a room for this academic year')) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+
+        res.status(500).json({ success: false, message: "❌ Internal Server Error" });
+    } finally {
+        client.release();
     }
 });
 
@@ -643,17 +653,30 @@ router.post('/requestRoom', async (req, res) => {
 router.get('/roomRequests', async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT request_id, username AS requested_by, academic_course_year_id, selected_students, requested_at, status, requested_for
+            `SELECT request_id, username AS requested_by, academic_course_year_id, selected_students, requested_at, status, requested_for, remarks
              FROM room_requests
              ORDER BY requested_at DESC`
         );
 
-        // ✅ Ensure `requested_for` is parsed properly (it should already contain usernames)
-        for (let row of result.rows) {
-            row.requested_for = Array.isArray(row.requested_for) ? row.requested_for : JSON.parse(row.requested_for);
+        // ✅ Ensure `requested_for` is always parsed properly
+        const formattedRequests = result.rows.map(row => ({
+            ...row,
+            requested_for: Array.isArray(row.requested_for) ? row.requested_for : JSON.parse(row.requested_for || '[]'),
+            selected_students: Array.isArray(row.selected_students) ? row.selected_students : JSON.parse(row.selected_students || '[]')
+        }));
+
+        // ✅ If no records found, return an empty list with a message
+        if (formattedRequests.length === 0) {
+            console.warn("⚠️ No room requests found.");
+            return res.status(200).json({ 
+                success: true, 
+                requests: [], 
+                message: "No room requests available." 
+            });
         }
 
-        res.status(200).json({ success: true, requests: result.rows });
+        // ✅ Return the found records
+        res.status(200).json({ success: true, requests: formattedRequests });
     } catch (error) {
         console.error("❌ Fetch Room Requests API Error:", error);
         res.status(500).json({ success: false, message: "Internal Server Error" });
@@ -694,14 +717,13 @@ router.put('/approveRequest/:request_id', async (req, res) => {
 });
 
 
-
 /**
  * @swagger
  * /api/allocateWithRequest:
  *   post:
  *     summary: Allocate Room After Request Approval
  *     tags: [Room Management]
- *     description: Allocates a student to a room based on an approved request.
+ *     description: Allocates students to a room based on an approved request.
  *     requestBody:
  *       required: true
  *       content:
@@ -723,76 +745,92 @@ router.put('/approveRequest/:request_id', async (req, res) => {
  *       200:
  *         description: Room allocated successfully.
  *       400:
- *         description: Missing required fields or invalid data.
+ *         description: Validation error or room full.
  *       500:
  *         description: Internal Server Error.
  */
 
+
 router.post('/allocateWithRequest', async (req, res) => {
+    const client = await pool.connect();
     try {
+        await client.query('BEGIN'); // 🔹 Start transaction
+
         const { request_id, hostel_id, block_id, floor_id, room_id } = req.body;
 
         // ✅ Validate required fields
         if (!request_id || !hostel_id || !block_id || !floor_id || !room_id) {
-            return res.status(400).json({ success: false, message: "All fields are required" });
+            await client.query('ROLLBACK');
+            return res.status(400).json({ success: false, message: "❌ All fields are required." });
         }
 
-        // ✅ Fetch Request Details
-        const requestCheck = await pool.query(
-            `SELECT username, academic_course_year_id FROM room_requests WHERE request_id = $1 AND status = 'Approved'`, 
+        // ✅ Fetch Request Details (Only Approved Requests)
+        const requestResult = await client.query(
+            `SELECT requested_for, academic_course_year_id, status FROM room_requests WHERE request_id = $1`,
             [request_id]
         );
 
-        if (requestCheck.rows.length === 0) {
-            return res.status(400).json({ success: false, message: "Invalid request ID or request is not approved" });
+        if (requestResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ success: false, message: `❌ Invalid request ID.` });
         }
 
-        const { username, academic_course_year_id } = requestCheck.rows[0];
+        const { requested_for, academic_course_year_id, status } = requestResult.rows[0];
 
-        // ✅ Fetch student_id from students table
-        const studentCheck = await pool.query(
-            `SELECT student_id, full_name FROM students WHERE username = $1`, 
-            [username]
-        );
-
-        if (studentCheck.rows.length === 0) {
-            return res.status(400).json({ success: false, message: "Student not found" });
+        if (status !== 'Approved') {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ success: false, message: `❌ Request ID ${request_id} is not approved. Current Status: ${status}` });
         }
 
-        const { student_id, full_name } = studentCheck.rows[0];
+        // ✅ Parse `requested_for` to ensure it's an array
+        const studentUsernames = Array.isArray(requested_for) ? requested_for : JSON.parse(requested_for || '[]');
 
-        // ✅ Fetch hostel, block, floor, and room names
-        const roomDetails = await pool.query(
-            `SELECT h.hostel_name, b.block_name, f.floor_name, r.room_name 
-             FROM hostels h, blocks b, floors f, rooms r 
-             WHERE h.hostel_id = $1 AND b.block_id = $2 AND f.floor_id = $3 AND r.room_id = $4`, 
-            [hostel_id, block_id, floor_id, room_id]
-        );
-
-        if (roomDetails.rows.length === 0) {
-            return res.status(400).json({ success: false, message: "Invalid room details" });
+        if (studentUsernames.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ success: false, message: "❌ No students found in request." });
         }
 
-        const { hostel_name, block_name, floor_name, room_name } = roomDetails.rows[0];
+        // ✅ Allocate Room to Each Student using the updated Function
+        for (const username of studentUsernames) {
+            const studentCheck = await client.query(
+                `SELECT student_id, full_name FROM students WHERE username = $1`,
+                [username]
+            );
 
-        // ✅ Allocate Room to Student
-        await pool.query(
-            `INSERT INTO student_room_allocations 
-             (request_id, student_id, username, full_name, hostel_id, hostel_name, block_id, block_name, floor_id, floor_name, room_id, room_name, allocated_at, academic_course_year_id) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13)`,
-            [request_id, student_id, username, full_name, hostel_id, hostel_name, block_id, block_name, floor_id, floor_name, room_id, room_name, academic_course_year_id]
+            if (studentCheck.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: `❌ Student not found: ${username}` });
+            }
+
+            const { student_id, full_name } = studentCheck.rows[0];
+
+            await client.query(
+                `SELECT allocate_student_with_request($1, $2, $3, $4, $5, $6);`,
+                [request_id, student_id, username, full_name, room_id, academic_course_year_id]
+            );
+        }
+
+        // ✅ Fetch updated status
+        const statusCheck = await client.query(
+            `SELECT status FROM room_requests WHERE request_id = $1`, 
+            [request_id]
         );
 
-        // ✅ Update Request Status to "Allocated"
-        await pool.query(`UPDATE room_requests SET status = 'Allocated' WHERE request_id = $1`, [request_id]);
+        const updatedStatus = statusCheck.rows[0]?.status || 'Unknown';
 
-        res.status(200).json({ success: true, message: "Room allocated successfully!" });
+        await client.query('COMMIT'); // ✅ Commit transaction
+        res.status(200).json({ success: true, message: `✅ Room allocated successfully! Current Status: ${updatedStatus}` });
 
     } catch (error) {
-        console.error("❌ API Error:", error);
-        res.status(500).json({ success: false, message: "Internal Server Error" });
+        await client.query('ROLLBACK'); // Rollback transaction on error
+        console.error("❌ Room Allocation API Error:", error);
+        res.status(500).json({ success: false, message: error.message || "❌ Internal Server Error" });
+    } finally {
+        client.release();
     }
 });
+
+
 
 
 
@@ -931,17 +969,24 @@ router.get('/roomRequests/:username', async (req, res) => {
         console.log(`🔍 Fetching room requests for: ${username}`);
 
         const result = await pool.query(
-            `SELECT request_id, requested_by, academic_course_year_id, selected_students, requested_at, status, requested_for
+            `SELECT request_id, requested_by, academic_course_year_id, selected_students, requested_at, status, requested_for, remarks
              FROM room_requests
              WHERE requested_by = $1 OR requested_for @> to_jsonb(ARRAY[$1]::text[])
              ORDER BY requested_at DESC`,
             [username]
         );
 
+        // if (result.rows.length === 0) {
+        //     console.warn("⚠️ No room requests found for this user:", username);
+        //     return res.status(404).json({ success: false, message: "No room requests found for this user" });
+        // }
+
         if (result.rows.length === 0) {
             console.warn("⚠️ No room requests found for this user:", username);
-            return res.status(404).json({ success: false, message: "No room requests found for this user" });
+            return res.status(200).json({ success: true, requests: [], message: "No room requests found for this user" });
         }
+        
+
 
         // ✅ Ensure `requested_for` is always an array
         const formattedRequests = result.rows.map(row => ({
@@ -1016,8 +1061,6 @@ router.put('/updateRoomRequestStatus', async (req, res) => {
 });
 
 
-
-
 /**
  * @swagger
  * /api/getRoomRequestByRequestId/{requestId}:
@@ -1051,17 +1094,27 @@ router.put('/updateRoomRequestStatus', async (req, res) => {
  *                       type: string
  *                     academic_course_year_id:
  *                       type: integer
+ *                     selected_students:
+ *                       type: array
+ *                       items:
+ *                         type: integer
  *                     requested_at:
  *                       type: string
+ *                       format: date-time
  *                     status:
  *                       type: string
+ *                     requested_for:
+ *                       type: array
+ *                       items:
+ *                         type: string
  *       400:
- *         description: Missing Request ID
+ *         description: Missing or invalid Request ID
  *       404:
  *         description: No request found with this ID
  *       500:
  *         description: Internal Server Error
  */
+
 router.get("/getRoomRequestByRequestId/:requestId", async (req, res) => {
     try {
         const { requestId } = req.params;
@@ -1070,23 +1123,37 @@ router.get("/getRoomRequestByRequestId/:requestId", async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid Request ID" });
         }
 
+        console.log(`🔍 Fetching room request for request_id: ${requestId}`);
+
         const result = await pool.query(
-            `SELECT request_id, username, academic_course_year_id, requested_at, status 
+            `SELECT request_id, username, academic_course_year_id, selected_students, requested_at, status, requested_for, remarks
              FROM room_requests 
              WHERE request_id = $1`, 
             [parseInt(requestId)]
         );
 
         if (result.rows.length === 0) {
+            console.warn("⚠️ No room request found for request_id:", requestId);
             return res.status(404).json({ success: false, message: "No request found with this ID" });
         }
 
-        return res.status(200).json({ success: true, request: result.rows[0] });
+        // ✅ Ensure `requested_for` and `selected_students` are always arrays
+        const formattedRequest = {
+            ...result.rows[0],
+            requested_for: Array.isArray(result.rows[0].requested_for) ? result.rows[0].requested_for : JSON.parse(result.rows[0].requested_for || '[]'),
+            selected_students: Array.isArray(result.rows[0].selected_students) ? result.rows[0].selected_students : JSON.parse(result.rows[0].selected_students || '[]')
+        };
+
+        console.log("✅ Returning Room Request:", formattedRequest);
+
+        return res.status(200).json({ success: true, request: formattedRequest });
+
     } catch (error) {
         console.error("❌ Fetch Request API Error:", error);
         return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
 
 /**
  * @swagger

@@ -451,64 +451,6 @@ router.post('/allocateStudentsToRooms', async (req, res) => {
 });
 
 
-
-// /**
-//  * @swagger
-//  * /api/getAllocatedRooms:
-//  *   get:
-//  *     summary: Fetch allocated rooms
-//  *     tags: [Room Management]
-//  *     responses:
-//  *       200:
-//  *         description: Successfully retrieved allocated rooms
-//  *       500:
-//  *         description: Internal Server Error
-//  */
-
-// router.get('/getAllocatedRooms', async (req, res) => {
-//     try {
-//         const { username } = req.query; // ✅ Get username from query params
-
-//         let query = 'SELECT * FROM public.get_allocated_rooms()';
-//         let values = [];
-
-//         if (username) {
-//             query += ' WHERE username = $1';
-//             values.push(username);
-//         }
-
-//         const result = await pool.query(query, values);
-
-//         res.status(200).json({ 
-//             success: true, 
-//             allocatedRooms: result.rows 
-//         });
-
-//     } catch (error) {
-//         console.error("❌ API Error:", error);
-//         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
-//     }
-// });
-
-
-
-// router.get('/getAllocatedRooms', async (req, res) => {
-//     try {
-//         const result = await pool.query('SELECT * FROM public.get_allocated_rooms();');
-
-//         // ✅ Return 200 OK with an empty array instead of 404
-//         res.status(200).json({ 
-//             success: true, 
-//             allocatedRooms: result.rows 
-//         });
-
-//     } catch (error) {
-//         console.error("❌ API Error:", error);
-//         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
-//     }
-// });
-
-
 /**
  * @swagger
  * /api/rooms/hostel/{hostelId}/block/{blockId}/floor/{floorId}:
@@ -846,6 +788,58 @@ router.get('/getAllocatedRooms', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 });
+
+/**
+ * @swagger
+ * /api/getAllocatedRoomsByUsername/{username}:
+ *   get:
+ *     summary: Fetch allocated rooms for a given username
+ *     tags: [Room Management]
+ *     parameters:
+ *       - in: path
+ *         name: username
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Username of the student
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved allocated rooms.
+ *       404:
+ *         description: No allocated rooms found.
+ *       500:
+ *         description: Internal Server Error.
+ */
+
+router.get('/getAllocatedRoomsByUsername/:username', async (req, res) => {
+    try {
+        const { username } = req.params;
+
+        if (!username) {
+            return res.status(400).json({ success: false, message: "Username is required" });
+        }
+
+        const formattedUsername = username.trim();
+        console.log("🔍 Checking allocated rooms for username:", formattedUsername);
+
+        const result = await pool.query("SELECT * FROM public.get_allocated_rooms_by_username($1);", [formattedUsername]);
+
+        console.log("🟢 Query Result:", result.rows);  // ✅ Log Query Response
+
+        // ✅ Instead of 404, return 200 with empty array
+        res.status(200).json({
+            success: true,
+            allocatedRooms: result.rows,
+            message: result.rows.length === 0 ? "No allocated rooms found for this username." : "Rooms retrieved successfully."
+        });
+
+    } catch (error) {
+        console.error("❌ API Error:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
+
 
 /**
  * @swagger

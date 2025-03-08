@@ -47,7 +47,6 @@ const router = express.Router();
  *         description: Internal Server Error
  */
 
-
 router.post('/promotions', async (req, res) => {
     try {
         const { students } = req.body;
@@ -139,8 +138,10 @@ router.post('/promotions', async (req, res) => {
 router.get('/promotion-history/:username', async (req, res) => {
     try {
         const { username } = req.params;
+        
+        // ✅ Fetch promotion history correctly
         const result = await pool.query(
-            "SELECT * FROM public.promotion_history WHERE username = $1 ORDER BY created_at DESC", 
+            `SELECT * FROM public.promotion_history WHERE LOWER(username) = LOWER($1) ORDER BY created_at DESC`, 
             [username]
         );
 
@@ -149,12 +150,12 @@ router.get('/promotion-history/:username', async (req, res) => {
         }
 
         res.status(200).json({ success: true, history: result.rows });
+
     } catch (error) {
         console.error("❌ Error fetching promotion history:", error);
         res.status(500).json({ success: false, message: "❌ Internal Server Error", error: error.message });
     }
 });
-
 
 
 

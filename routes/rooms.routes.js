@@ -764,7 +764,7 @@ router.post('/allocateWithRequest', async (req, res) => {
             return res.status(400).json({ success: false, message: "❌ All fields are required." });
         }
 
-        // ✅ Fetch Request Details (Only Approved Requests)
+        // ✅ Fetch Request Details
         const requestResult = await client.query(
             `SELECT requested_for, academic_course_year_id, status FROM room_requests WHERE request_id = $1`,
             [request_id]
@@ -782,7 +782,6 @@ router.post('/allocateWithRequest', async (req, res) => {
             return res.status(400).json({ success: false, message: `❌ Request ID ${request_id} is not approved. Current Status: ${status}` });
         }
 
-        // ✅ Parse `requested_for` to ensure it's an array
         const studentUsernames = Array.isArray(requested_for) ? requested_for : JSON.parse(requested_for || '[]');
 
         if (studentUsernames.length === 0) {
@@ -790,7 +789,7 @@ router.post('/allocateWithRequest', async (req, res) => {
             return res.status(400).json({ success: false, message: "❌ No students found in request." });
         }
 
-        // ✅ Allocate Room to Each Student using the updated Function
+        // ✅ Allocate Room to Each Student
         for (const username of studentUsernames) {
             const studentCheck = await client.query(
                 `SELECT student_id, full_name FROM students WHERE username = $1`,
@@ -810,16 +809,8 @@ router.post('/allocateWithRequest', async (req, res) => {
             );
         }
 
-        // ✅ Fetch updated status
-        const statusCheck = await client.query(
-            `SELECT status FROM room_requests WHERE request_id = $1`, 
-            [request_id]
-        );
-
-        const updatedStatus = statusCheck.rows[0]?.status || 'Unknown';
-
         await client.query('COMMIT'); // ✅ Commit transaction
-        res.status(200).json({ success: true, message: `✅ Room allocated successfully! Current Status: ${updatedStatus}` });
+        res.status(200).json({ success: true, message: `✅ Room allocated successfully!` });
 
     } catch (error) {
         await client.query('ROLLBACK'); // Rollback transaction on error
@@ -829,8 +820,6 @@ router.post('/allocateWithRequest', async (req, res) => {
         client.release();
     }
 });
-
-
 
 
 
@@ -1037,23 +1026,19 @@ router.get('/roomRequests/:username', async (req, res) => {
 
 router.put('/updateRoomRequestStatus', async (req, res) => {
     try {
-        const { request_id, status, remarks } = req.body;
+        const { request_id, status, remarks, performed_by } = req.body;
 
-        if (!request_id || !status || !remarks) {
-            return res.status(400).json({ success: false, message: "All fields are required." });
+        if (!request_id || !status || !remarks || !performed_by) {
+            return res.status(400).json({ success: false, message: "All fields (including performed_by) are required." });
         }
 
-        // ✅ Update the room_requests table with status and remarks
-        const result = await pool.query(
-            "UPDATE room_requests SET status = $1, remarks = $2 WHERE request_id = $3 RETURNING *;",
-            [status, remarks, request_id]
+        // ✅ Call PostgreSQL function
+        await pool.query(
+            "SELECT public.update_room_request_status($1, $2, $3, $4);",
+            [request_id, status, remarks, performed_by]
         );
 
-        if (result.rowCount === 0) {
-            return res.status(404).json({ success: false, message: "Room request not found." });
-        }
-
-        res.status(200).json({ success: true, message: `Room request ${status} successfully!` });
+        res.status(200).json({ success: true, message: `Room request ${status} successfully updated!` });
     } catch (error) {
         console.error("❌ Update Room Request API Error:", error);
         res.status(500).json({ success: false, message: "Internal Server Error" });
@@ -1229,6 +1214,49 @@ router.get("/getRoomRequestByRoomId/:roomId", async (req, res) => {
         return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
+
+/**
+ * @swagger
+ * /api/requestHistory/{request_id}:
+ *   get:
+ *     tags: [Room Management]
+ *     summary: Fetch full request history for a given request_id
+ *     parameters:
+ *       - name: request_id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The request_id to track history
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved request history
+ *       404:
+ *         description: No history found for this request_id
+ *       500:
+ *         description: Internal Server Error
+ */
+
+router.get('/requestHistory/:request_id', async (req, res) => {
+    try {
+        const { request_id } = req.params;
+        const result = await pool.query(
+            "SELECT * FROM public.get_request_history($1)", 
+            [request_id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "⚠️ No history found for this request." });
+        }
+
+        res.status(200).json({ success: true, history: result.rows });
+    } catch (error) {
+        console.error("❌ Error fetching request history:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
 
 
 module.exports = router;

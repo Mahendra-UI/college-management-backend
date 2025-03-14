@@ -602,4 +602,99 @@ router.get('/getallcgpa', async (req, res) => {
 
 
 
+/**
+ * @swagger
+ * /api/getallsgpacgpa:
+ *   get:
+ *     summary: Fetch SGPA and CGPA of all students
+ *     tags: [Student SGPA & CGPA]
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved all students' SGPA and CGPA.
+ */
+router.get('/getallsgpacgpa', async (req, res) => {
+    try {
+        const result = await pool.query("SELECT * FROM get_all_students_sgpa_cgpa()");
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "No SGPA/CGPA records found." });
+        }
+
+        res.status(200).json({ success: true, students: result.rows });
+    } catch (error) {
+        console.error("❌ Error fetching SGPA/CGPA records:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+/**
+ * @swagger
+ * /api/update-sgpa:
+ *   put:
+ *     summary: Update SGPA for a student
+ *     tags: [Student SGPA]
+ *     parameters:
+ *       - in: body
+ *         name: sgpaUpdate
+ *         description: Update a student's semester SGPA values
+ *         required: true
+ *         schema:
+ *           type: object
+ *           properties:
+ *             student_id:
+ *               type: integer
+ *             first_semester_sgpa:
+ *               type: number
+ *             second_semester_sgpa:
+ *               type: number
+ *             third_semester_sgpa:
+ *               type: number
+ *             fourth_semester_sgpa:
+ *               type: number
+ *     responses:
+ *       200:
+ *         description: Successfully updated the student's SGPA.
+ *       400:
+ *         description: Invalid input data.
+ *       500:
+ *         description: Internal server error.
+ */
+router.put('/update-sgpa-cgpa', async (req, res) => {
+    try {
+        const {
+            student_id,
+            first_semester_sgpa,
+            second_semester_sgpa,
+            third_semester_sgpa,
+            fourth_semester_sgpa,
+            cgpa  // ✅ Added CGPA
+        } = req.body;
+
+        if (!student_id) {
+            return res.status(400).json({ success: false, message: "Student ID is required." });
+        }
+
+        const query = `
+            SELECT update_student_sgpa_cgpa($1, $2, $3, $4, $5, $6)
+        `;
+
+        await pool.query(query, [
+            student_id,
+            first_semester_sgpa || null,  // ✅ Ensure NULL values are passed correctly
+            second_semester_sgpa || null,
+            third_semester_sgpa || null,
+            fourth_semester_sgpa || null,
+            cgpa || null  // ✅ Now supports CGPA updates
+        ]);
+
+        res.status(200).json({ success: true, message: "SGPA & CGPA updated successfully." });
+    } catch (error) {
+        console.error("❌ Error updating SGPA & CGPA:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    }
+});
+
+
+
 module.exports = router;

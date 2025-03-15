@@ -145,8 +145,9 @@ router.get('/promotion-history/:username', async (req, res) => {
             [username]
         );
 
+        // ✅ Return 200 with an empty array instead of 404
         if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, message: "⚠️ No promotion history found for this student." });
+            return res.status(200).json({ success: true, history: [], message: "⚠️ No promotion history found for this student." });
         }
 
         res.status(200).json({ success: true, history: result.rows });

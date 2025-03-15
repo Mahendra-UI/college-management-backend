@@ -46,17 +46,17 @@ const router = express.Router();
  */
 router.post('/addstudentresult', async (req, res) => {
     try {
-        const { username, courseId, semesterId, subjectId, studentCredits, resultStatus } = req.body;
+        const { username, courseId, semesterId, subjectId, studentCredits, resultStatus, subjectGrade } = req.body;
 
         // ✅ Check for missing fields
-        if (!username || !courseId || !semesterId || !subjectId || !studentCredits || !resultStatus) {
+        if (!username || !courseId || !semesterId || !subjectId || !studentCredits || !resultStatus || !subjectGrade) {
             return res.status(400).json({ success: false, message: "All fields are required" });
         }
 
-        // ✅ Call the correct function and use `earned_credits` instead of `credits`
+        // ✅ Call the function with the new subjectGrade parameter
         const result = await pool.query(
-            `SELECT insert_student_result($1, $2, $3, $4, $5, $6) AS response`,
-            [username, courseId, semesterId, subjectId, studentCredits, resultStatus]
+            `SELECT insert_student_result($1, $2, $3, $4, $5, $6, $7) AS response`,
+            [username, courseId, semesterId, subjectId, studentCredits, resultStatus, subjectGrade]
         );
 
         const responseMessage = result.rows[0].response;
@@ -79,6 +79,7 @@ router.post('/addstudentresult', async (req, res) => {
 
 
 
+
 /**
  * @swagger
  * /api/updatestudentresult:
@@ -88,15 +89,17 @@ router.post('/addstudentresult', async (req, res) => {
  */
 router.put('/updatestudentresult', async (req, res) => {
     try {
-        const { username, courseId, semesterId, subjectId, studentCredits, resultStatus } = req.body;
+        const { username, courseId, semesterId, subjectId, studentCredits, resultStatus, subjectGrade } = req.body;
 
-        if (!username || !courseId || !semesterId || !subjectId || !studentCredits || !resultStatus) {
+        // ✅ Check for missing fields
+        if (!username || !courseId || !semesterId || !subjectId || !studentCredits || !resultStatus || !subjectGrade) {
             return res.status(400).json({ success: false, message: "All fields are required" });
         }
 
+        // ✅ Call the updated function with `subjectGrade`
         const result = await pool.query(
-            `SELECT update_student_result($1, $2, $3, $4, $5, $6) AS response`,
-            [username, courseId, semesterId, subjectId, studentCredits, resultStatus]
+            `SELECT update_student_result($1, $2, $3, $4, $5, $6, $7) AS response`,
+            [username, courseId, semesterId, subjectId, studentCredits, resultStatus, subjectGrade]
         );
 
         res.status(200).json({ success: true, message: result.rows[0].response });
@@ -104,6 +107,7 @@ router.put('/updatestudentresult', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
 
 
 /**

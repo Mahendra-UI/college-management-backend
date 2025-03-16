@@ -594,20 +594,21 @@ router.post('/requestRoom', async (req, res) => {
 
 router.get('/roomRequests', async (req, res) => {
     try {
+        // Ensure records are sorted by request_id in ascending order
         const result = await pool.query(
-            `SELECT request_id, username AS requested_by, academic_course_year_id, selected_students, requested_at, status, requested_for, remarks
+            `SELECT request_id, username AS requested_by, academic_course_year_id, selected_students, 
+                    requested_at, status, requested_for, remarks
              FROM room_requests
-             ORDER BY requested_at DESC`
+             ORDER BY request_id ASC`
         );
 
-        // ✅ Ensure `requested_for` is always parsed properly
-        const formattedRequests = result.rows.map(row => ({
+        let formattedRequests = result.rows.map(row => ({
             ...row,
             requested_for: Array.isArray(row.requested_for) ? row.requested_for : JSON.parse(row.requested_for || '[]'),
             selected_students: Array.isArray(row.selected_students) ? row.selected_students : JSON.parse(row.selected_students || '[]')
         }));
 
-        // ✅ If no records found, return an empty list with a message
+        // ✅ If no records exist, return an empty response with a message
         if (formattedRequests.length === 0) {
             console.warn("⚠️ No room requests found.");
             return res.status(200).json({ 
@@ -617,8 +618,9 @@ router.get('/roomRequests', async (req, res) => {
             });
         }
 
-        // ✅ Return the found records
+        // ✅ Return the sorted list of requests
         res.status(200).json({ success: true, requests: formattedRequests });
+
     } catch (error) {
         console.error("❌ Fetch Room Requests API Error:", error);
         res.status(500).json({ success: false, message: "Internal Server Error" });

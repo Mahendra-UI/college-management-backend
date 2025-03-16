@@ -433,13 +433,11 @@ router.post('/payments', async (req, res) => {
             return res.status(400).json({ success: false, message: "Missing required fields" });
         }
 
-        // ✅ Generate Unique Transaction ID
         const transaction_id = `TXN${Date.now()}`;
 
-        // ✅ Insert Payment Record
         const result = await pool.query(
-            `INSERT INTO payments (fee_ledger_id, username, transaction_id, payment_status, amount_paid)
-             VALUES ($1, $2, $3, 'Completed', $4) RETURNING *`,
+            `INSERT INTO payments (fee_ledger_id, username, transaction_id, payment_status, amount_paid, payment_date)
+             VALUES ($1, $2, $3, 'Completed', $4, NOW()) RETURNING *`,
             [fee_ledger_id, username, transaction_id, amount]
         );
 
@@ -455,6 +453,7 @@ router.post('/payments', async (req, res) => {
         return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     }
 });
+
 
 
 /**

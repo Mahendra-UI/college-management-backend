@@ -91,9 +91,15 @@ router.post('/fee-ledger', async (req, res) => {
 
     } catch (error) {
         console.error("Error inserting fee ledger record:", error);
+
+        if (error.code === 'P0001') {  // ✅ Check if error is from RAISE EXCEPTION
+            return res.status(400).json({ success: false, message: error.message });
+        }
+
         return res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 });
+
 
 
 
@@ -279,9 +285,15 @@ router.put('/fee-ledger/:id', async (req, res) => {
 
     } catch (error) {
         console.error("Error updating fee ledger record:", error);
+
+        if (error.code === 'P0001') {  // ✅ Catch the RAISE EXCEPTION error
+            return res.status(400).json({ success: false, message: error.message });
+        }
+
         return res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 });
+
 
 
 

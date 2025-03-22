@@ -672,7 +672,11 @@ router.put('/update-sgpa-cgpa', async (req, res) => {
             second_semester_sgpa,
             third_semester_sgpa,
             fourth_semester_sgpa,
-            cgpa  // ✅ Added CGPA
+            fifth_semester_sgpa,
+            sixth_semester_sgpa,
+            seventh_semester_sgpa,
+            eighth_semester_sgpa,
+            cgpa
         } = req.body;
 
         if (!student_id) {
@@ -680,16 +684,22 @@ router.put('/update-sgpa-cgpa', async (req, res) => {
         }
 
         const query = `
-            SELECT update_student_sgpa_cgpa($1, $2, $3, $4, $5, $6)
+            SELECT update_student_sgpa_cgpa(
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+            )
         `;
 
         await pool.query(query, [
             student_id,
-            first_semester_sgpa || null,  // ✅ Ensure NULL values are passed correctly
+            first_semester_sgpa || null,
             second_semester_sgpa || null,
             third_semester_sgpa || null,
             fourth_semester_sgpa || null,
-            cgpa || null  // ✅ Now supports CGPA updates
+            fifth_semester_sgpa || null,
+            sixth_semester_sgpa || null,
+            seventh_semester_sgpa || null,
+            eighth_semester_sgpa || null,
+            cgpa || null
         ]);
 
         res.status(200).json({ success: true, message: "SGPA & CGPA updated successfully." });

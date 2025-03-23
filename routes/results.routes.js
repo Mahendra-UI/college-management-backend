@@ -161,7 +161,39 @@ router.get('/getstudentresult/:result_id', async (req, res) => {
  *   get:
  *     summary: Fetch all student results sorted by ascending result_id.
  *     tags: [Student Results]
+ *     responses:
+ *       200:
+ *         description: List of student results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       result_id:
+ *                         type: integer
+ *                       username:
+ *                         type: string
+ *                       subject_name:
+ *                         type: string
+ *                       semester_name:
+ *                         type: string
+ *                       total_credits:
+ *                         type: number
+ *                       earned_credits:
+ *                         type: number
+ *                       result_status:
+ *                         type: string
+ *                       subject_grade:
+ *                         type: string
  */
+
 router.get('/getstudentresults', async (req, res) => {
     try {
         const result = await pool.query(`SELECT * FROM get_all_student_results()`);

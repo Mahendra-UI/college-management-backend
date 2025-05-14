@@ -46,11 +46,12 @@ router.post('/login', async (req, res) => {
         let query, params;
 
         if (userType === "Student") {
-            // ✅ Fetch student details including student_id
+            // ✅ Fetch student details including student_id and gender
             query = `
                 SELECT l.username, l.password, l.full_name, l.user_type, 
                        s.student_id, s.course_name, s.course_id, 
-                       s.academic_course_year_id, s.academic_course_year_name
+                       s.academic_course_year_id, s.academic_course_year_name, 
+                       s.student_gender  -- Added gender to the query
                 FROM login l 
                 LEFT JOIN students s ON l.username = s.username
                 WHERE l.username = $1 AND l.user_type = 'Student'`;
@@ -82,6 +83,7 @@ router.post('/login', async (req, res) => {
             full_name: result.rows[0].full_name || "User",
             username: result.rows[0].username,
             student_id: result.rows[0].student_id || null,  // ✅ Include student_id
+            gender: result.rows[0].student_gender || null,  // ✅ Include gender
         };
 
         if (userType === "Student") {
@@ -101,6 +103,7 @@ router.post('/login', async (req, res) => {
         return res.status(500).json({ success: false, message: "❌ Internal Server Error", error: error.message });
     }
 });
+
 
 
 

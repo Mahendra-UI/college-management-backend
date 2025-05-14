@@ -318,6 +318,90 @@ router.get('/getstudentsbyusername/:username', async (req, res) => {
 });
 
 
+
+/**
+ * @swagger
+ * /api/getstudentsbycourseyearandgender:
+ *   get:
+ *     tags:
+ *       - Student Management
+ *     summary: Fetch students based on academic course year and gender
+ *     description: Retrieves students from the database filtered by academic course year and gender.
+ *     parameters:
+ *       - name: academic_course_year_id
+ *         in: query
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The academic course year ID to filter students.
+ *       - name: gender
+ *         in: query
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [Male, Female, Other]
+ *         description: The gender to filter students.
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved students based on academic course year and gender.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 students:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       student_id:
+ *                         type: integer
+ *                       full_name:
+ *                         type: string
+ *                       student_username:
+ *                         type: string
+ *                       student_gender:
+ *                         type: string
+ *                       course_name:
+ *                         type: string
+ *                       academic_course_year_name:
+ *                         type: string
+ *       400:
+ *         description: Missing or incorrect parameters.
+ *       500:
+ *         description: Internal server error.
+ */
+router.get('/getstudentsbycourseyearandgender', async (req, res) => {
+    try {
+        const academicCourseYearId = parseInt(req.query.academic_course_year_id, 10);
+        const gender = req.query.gender;
+
+        if (!academicCourseYearId || !gender) {
+            return res.status(400).json({ success: false, message: 'Academic course year and gender are required' });
+        }
+
+        // Call the PostgreSQL function directly to fetch students based on course year and gender
+        const result = await pool.query(
+            `SELECT * 
+             FROM public.get_students_by_course_year_and_gender($1, $2)`, 
+            [academicCourseYearId, gender]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'No students found for the given criteria' });
+        }
+
+        res.status(200).json({ success: true, students: result.rows });
+    } catch (error) {
+        console.error('❌ Error fetching students by academic course year and gender:', error);
+        res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
+    }
+});
+
+
+
 /**
  * @swagger
  * /api/getstudentsbyusername/{username}:

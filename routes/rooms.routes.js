@@ -415,10 +415,11 @@ router.post('/allocateStudentsToRooms', async (req, res) => {
             }
 
             // ✅ Allocate Student with gender
-            await client.query(
-                "SELECT allocate_student_to_room($1, $2, $3, $4, $5, $6, $7, $8);",
-                [student_id, username, full_name, room_id, academic_course_year_id, request_id || null, requested_by || 'Hostel Admin', gender]
-            );
+await client.query(
+  "SELECT allocate_student_to_room($1, $2, $3, $4, $5, $6, $7);",
+  [student_id, username, full_name, room_id, academic_course_year_id, request_id || null, requested_by || 'Hostel Admin']
+);
+
         }
 
         // ✅ If any students were already allocated, return a detailed message
@@ -1071,88 +1072,34 @@ router.get('/roomRequestStatusByStatusId/:status_id', async (req, res) => {
 // });
 
 
-
 router.get('/roomRequests', async (req, res) => {
+    const client = await pool.connect();
     try {
-        const result = await pool.query(
-            `SELECT request_id, username AS requested_by, academic_course_year_id, selected_students, 
-                    requested_at, status, requested_for, remarks, 
-                    r.hostel_id, h.hostel_name
-             FROM room_requests r
-             LEFT JOIN hostels h ON r.hostel_id = h.hostel_id
-             ORDER BY request_id ASC`
-        );
+        const result = await client.query('SELECT * FROM get_room_requests();');
 
-        if (result.rows.length === 0) {
-            return res.status(200).json({ 
-                success: true, 
-                requests: [], 
-                message: "No room requests available." 
-            });
-        }
-
-        // Convert and format the JSON fields
-        let formattedRequests = result.rows.map(row => ({
+        const formatted = result.rows.map(row => ({
             ...row,
-            requested_for: Array.isArray(row.requested_for) ? row.requested_for : JSON.parse(row.requested_for || '[]'),
-            selected_students: Array.isArray(row.selected_students) ? row.selected_students : JSON.parse(row.selected_students || '[]'),
-            hostel_name: row.hostel_name || "Not Assigned"
+            requested_for: Array.isArray(row.requested_for)
+                ? row.requested_for
+                : JSON.parse(row.requested_for || '[]'),
+            selected_students: Array.isArray(row.selected_students)
+                ? row.selected_students
+                : JSON.parse(row.selected_students || '[]'),
+            hostel_name: row.hostel_name || "Not Assigned",
+            gender: row.gender || "Unknown"
         }));
 
-        // ✅ Fetch gender for all unique requested_by usernames
-        const requestedByUsernames = [...new Set(formattedRequests.map(req => req.requested_by))];
-
-        const genderResult = await pool.query(
-            `SELECT username, student_gender FROM students WHERE username = ANY($1)`,
-            [requestedByUsernames]
-        );
-
-        const genderMap = {};
-        genderResult.rows.forEach(row => {
-            genderMap[row.username] = row.student_gender;
-        });
-
-        // ✅ Inject gender into the response
-        formattedRequests = formattedRequests.map(req => ({
-            ...req,
-            gender: genderMap[req.requested_by] || "Unknown"
-        }));
-
-        // ✅ Allocation count
-        const requestIds = formattedRequests.map(req => req.request_id);
-        const allocationResult = await pool.query(
-            `SELECT request_id, COUNT(*) as allocated_count 
-             FROM student_room_allocations 
-             WHERE request_id = ANY($1) AND status = 'Allocated'
-             GROUP BY request_id`,
-            [requestIds]
-        );
-
-        const allocationMap = {};
-        allocationResult.rows.forEach(row => {
-            allocationMap[row.request_id] = parseInt(row.allocated_count);
-        });
-
-        // ✅ Update statuses if all students are allocated
-        for (let request of formattedRequests) {
-            const allocatedCount = allocationMap[request.request_id] || 0;
-            const totalStudents = request.requested_for.length;
-
-            if (allocatedCount === totalStudents && request.status !== 'Allocated') {
-                request.status = 'Allocated';
-
-                await pool.query(
-                    `UPDATE room_requests SET status = 'Allocated' WHERE request_id = $1`,
-                    [request.request_id]
-                );
-            }
-        }
-
-        res.status(200).json({ success: true, requests: formattedRequests });
+        return res.status(200).json({ success: true, requests: formatted });
 
     } catch (error) {
-        console.error("❌ Fetch Room Requests API Error:", error);
-        res.status(500).json({ success: false, message: "Internal Server Error" });
+        console.error("❌ Fetch Room Requests API Error:", error.stack || error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error",
+            error: error.message || "Unexpected Error"
+        });
+    } finally {
+        client.release();
     }
 });
 
@@ -1559,87 +1506,32 @@ router.get('/roomRequests/:username', async (req, res) => {
             return res.status(400).json({ success: false, message: "Username is required" });
         }
 
-        console.log(`🔍 Fetching room requests for: ${username}`);
+        console.log(`🔍 Fetching room requests via function for: ${username}`);
 
-        const result = await client.query(
-            `SELECT request_id, requested_by, academic_course_year_id, selected_students, 
-                    requested_at, status, requested_for, remarks, 
-                    r.hostel_id, h.hostel_name
-             FROM room_requests r
-             LEFT JOIN hostels h ON r.hostel_id = h.hostel_id
-             WHERE requested_by = $1 OR requested_for @> to_jsonb(ARRAY[$1]::text[])
-             ORDER BY requested_at DESC`,
-            [username]
-        );
+        const result = await client.query('SELECT * FROM get_room_requests_by_username($1)', [username]);
 
         if (result.rows.length === 0) {
             return res.status(200).json({ success: true, requests: [], message: "No room requests found for this user" });
         }
 
-        let formattedRequests = result.rows.map(row => ({
+        // ✅ Format JSON fields safely
+        const formattedRequests = result.rows.map(row => ({
             ...row,
             requested_for: Array.isArray(row.requested_for) ? row.requested_for : JSON.parse(row.requested_for || '[]'),
             selected_students: Array.isArray(row.selected_students) ? row.selected_students : JSON.parse(row.selected_students || '[]'),
             hostel_name: row.hostel_name || "Not Assigned"
         }));
 
-        // ✅ Get gender for requested_by users only
-        const requestedByUsernames = [...new Set(formattedRequests.map(req => req.requested_by))];
-
-        let genderMap = {};
-        if (requestedByUsernames.length > 0) {
-            const genderQuery = await client.query(
-                `SELECT username, student_gender FROM students WHERE username = ANY($1)`,
-                [requestedByUsernames]
-            );
-            genderQuery.rows.forEach(row => {
-                genderMap[row.username] = row.student_gender;
-            });
-        }
-
-        // ✅ Inject gender into top-level response
-        formattedRequests = formattedRequests.map(req => ({
-            ...req,
-            gender: genderMap[req.requested_by] || 'Unknown'
-        }));
-
-        // ✅ Count Allocations
-        const requestIds = formattedRequests.map(req => req.request_id);
-        const allocationResult = await client.query(
-            `SELECT request_id, COUNT(*) as allocated_count 
-             FROM student_room_allocations 
-             WHERE request_id = ANY($1) AND status = 'Allocated'
-             GROUP BY request_id`,
-            [requestIds]
-        );
-
-        const allocationMap = {};
-        allocationResult.rows.forEach(row => {
-            allocationMap[row.request_id] = parseInt(row.allocated_count);
-        });
-
-        for (let request of formattedRequests) {
-            const allocatedCount = allocationMap[request.request_id] || 0;
-            const totalStudents = request.requested_for.length;
-
-            if (allocatedCount === totalStudents && request.status !== 'Allocated') {
-                request.status = 'Allocated';
-                await client.query(
-                    `UPDATE room_requests SET status = 'Allocated' WHERE request_id = $1`,
-                    [request.request_id]
-                );
-            }
-        }
-
         res.status(200).json({ success: true, requests: formattedRequests });
 
     } catch (error) {
-        console.error("❌ Fetch Room Requests API Error:", error);
-        res.status(500).json({ success: false, message: "Internal Server Error" });
+        console.error("❌ Fetch Room Requests (by username) API Error:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
     } finally {
         client.release();
     }
 });
+
 
 
 
@@ -1764,14 +1656,16 @@ router.get("/getRoomRequestByRequestId/:requestId", async (req, res) => {
         console.log(`🔍 Fetching room request for request_id: ${requestId}`);
 
         // ✅ Query to fetch room request along with hostel details
-        const result = await pool.query(
-            `SELECT rr.request_id, rr.username, rr.academic_course_year_id, rr.selected_students, rr.requested_at, rr.status, rr.requested_for, rr.remarks,
-                    rr.hostel_id, h.hostel_name
-             FROM room_requests rr
-             LEFT JOIN hostels h ON rr.hostel_id = h.hostel_id  -- Join with the hostels table to get hostel_name
-             WHERE rr.request_id = $1`, 
-            [parseInt(requestId)]
-        );
+const result = await pool.query(
+    `SELECT rr.request_id, rr.username, rr.academic_course_year_id, rr.selected_students, rr.requested_at, rr.status, rr.requested_for, rr.remarks,
+            rr.hostel_id, s.student_gender AS gender, h.hostel_name
+     FROM room_requests rr
+     LEFT JOIN hostels h ON rr.hostel_id = h.hostel_id
+     LEFT JOIN students s ON rr.username = s.username
+     WHERE rr.request_id = $1`, 
+    [parseInt(requestId)]
+);
+
 
         if (result.rows.length === 0) {
             console.warn("⚠️ No room request found for request_id:", requestId);
